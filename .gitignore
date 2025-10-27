@@ -1,0 +1,38 @@
+# Binaries
+wiredolphin
+wiredolphin-linux-amd64
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# CSV log files
+camada_internet.csv
+camada_transporte.csv
+camada_aplicacao.csv
+*.csv
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
