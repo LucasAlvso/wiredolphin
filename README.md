@@ -66,10 +66,22 @@ Stop:
 docker compose down
 ```
 
+Clients (optional):
+
+1. Place client scripts from the traffic_tunnel project under `./tunnel/clients/` (e.g., `client1.sh`, `client2.sh`).
+2. Bring up the environment with two example clients:
+
+```powershell
+docker compose up -d --build
+```
+
+Each client container runs `traffic_tunnel` in client mode using its script and waits for its own tun0. You can enable basic traffic generation by setting `PING_TARGET` environment variables for clients in `docker-compose.yml` or via overrides.
+
 Notes:
 - The image builds `traffic_tunnel` from the sources in `./tunnel` and runs it in server mode (`-s`) on `$TUN_UNDERLAY_IF`, creating `$IFACE` (tun0 by default) inside the container; the analyzer attaches to it.
 - The container requires `CAP_NET_ADMIN` and `CAP_NET_RAW`, and `/dev/net/tun` to create the virtual interface; compose sets these up.
 - On Docker Desktop for Windows/macOS, all of this runs inside the Linux VM. To observe real host traffic, prefer running on a Linux host where you control the underlay interface.
+- Client scripts are not included here; copy the ones from the `traffic_tunnel` project into `./tunnel/clients`. If the script requires a server IP/host, use the server container name `wiredolphin` (on the same Docker network) or set an explicit IP.
  - The entrypoint ensures the `$IFACE` is up, assigns `$TUN_ADDR_CIDR` if there is no IP, and optionally enables NAT if `$TUN_ENABLE_NAT=true`.
 
 ## Usage
