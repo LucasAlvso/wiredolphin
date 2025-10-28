@@ -6,25 +6,31 @@ services:
     container_name: wiredolphin
     restart: unless-stopped
 
-    # Share host network namespace so the container can see host interfaces (e.g., tun0)
-    # Note: On Docker Desktop for Windows/macOS, host networking refers to the Linux VM
-    # and won't expose the host OS interfaces. Prefer running on a Linux host.
-    network_mode: host
-
-    # Raw packet capture requires NET_RAW (and sometimes NET_ADMIN depending on host setup)
+    # Capabilities needed to create tun interface, iptables, and open raw sockets
     cap_add:
-      - NET_RAW
       - NET_ADMIN
+      - NET_RAW
 
-    # Current working directory holds CSV logs; mount to persist on host
+    # Access to /dev/net/tun from host
+    devices:
+      - "/dev/net/tun:/dev/net/tun"
+
+    # Enable forwarding inside container for NAT (if the tunnel sets it)
+    sysctls:
+      net.ipv4.ip_forward: "1"
+
+    # Persist CSV logs and provide tunnel binary/source
     working_dir: /logs
     volumes:
       - ./logs:/logs
 
-    # Select monitored interface (defaults to tun0). Override via env or CLI.
+    # Environment configuration
     environment:
+      # Analyzer interface (created by the tunnel)
       - IFACE=tun0
-
-    # Example: to target a different interface, uncomment and adjust
-    # environment:
-    #   - IFACE=eth0
+      # Physical/underlay interface (inside the container) used by the tunnel server
+      - TUN_UNDERLAY_IF=eth0
+      # Whether to start the tunnel process; set to false if you already run tunnel externally
+      - TUN_START=true
+      # Seconds to wait for IFACE to appear
+      - TUN_WAIT_TIMEOUT=20

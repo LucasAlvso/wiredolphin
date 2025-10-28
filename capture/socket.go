@@ -81,11 +81,21 @@ func (c *Capturer) Start(done <-chan struct{}) error {
 
 			if n > 0 {
 				// Determine if this link layer has an Ethernet header
-				isEthernet := true
+				isEthernet := false
 				if ll, ok := from.(*unix.SockaddrLinklayer); ok {
 					// ARPHRD_ETHER == 1; TUN devices are typically ARPHRD_NONE (65534)
-					if ll.Hatype != unix.ARPHRD_ETHER {
-						isEthernet = false
+					if ll.Hatype == unix.ARPHRD_ETHER {
+						isEthernet = true
+					}
+				} else {
+					// Fallback inference: if payload starts with IPv4/IPv6 version nibble, treat as L3; else assume Ethernet
+					if n >= 1 {
+						v := buffer[0] >> 4
+						if v != 4 && v != 6 {
+							isEthernet = true
+						}
+					} else {
+						isEthernet = true
 					}
 				}
 				c.processPacket(buffer[:n], isEthernet)

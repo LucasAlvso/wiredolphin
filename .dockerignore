@@ -5,6 +5,7 @@ wiredolphin-*
 # Logs
 *.csv
 logs/
+# Include tunnel in build context so the image can build it
 
 # VCS
 .git
