@@ -71,7 +71,7 @@ func (c *Capturer) Start(done <-chan struct{}) error {
 				// Non-fatal, continue
 			}
 
-			n, _, err := unix.Recvfrom(c.fd, buffer, 0)
+			n, from, err := unix.Recvfrom(c.fd, buffer, 0)
 			if err != nil {
 				if err == unix.EAGAIN || err == unix.EWOULDBLOCK {
 					continue
@@ -80,22 +80,48 @@ func (c *Capturer) Start(done <-chan struct{}) error {
 			}
 
 			if n > 0 {
-				c.processPacket(buffer[:n])
+				// Determine if this link layer has an Ethernet header
+				isEthernet := true
+				if ll, ok := from.(*unix.SockaddrLinklayer); ok {
+					// ARPHRD_ETHER == 1; TUN devices are typically ARPHRD_NONE (65534)
+					if ll.Hatype != unix.ARPHRD_ETHER {
+						isEthernet = false
+					}
+				}
+				c.processPacket(buffer[:n], isEthernet)
 			}
 		}
 	}
 }
 
 // processPacket processes a captured packet
-func (c *Capturer) processPacket(data []byte) {
-	// Skip Ethernet header (14 bytes)
-	if len(data) < 14 {
-		return
+func (c *Capturer) processPacket(data []byte, isEthernet bool) {
+	var etherType uint16
+	var payload []byte
+	if isEthernet {
+		// Expect Ethernet header (14 bytes)
+		if len(data) < 14 {
+			return
+		}
+		etherType = uint16(data[12])<<8 | uint16(data[13])
+		payload = data[14:]
+	} else {
+		// No Ethernet header (e.g., TUN devices). Inspect IP version nibble.
+		if len(data) < 1 {
+			return
+		}
+		version := data[0] >> 4
+		switch version {
+		case 4:
+			etherType = 0x0800 // IPv4
+			payload = data
+		case 6:
+			etherType = 0x86DD // IPv6
+			payload = data
+		default:
+			return
+		}
 	}
-
-	// Get EtherType
-	etherType := uint16(data[12])<<8 | uint16(data[13])
-	payload := data[14:]
 
 	pkt := &stats.PacketInfo{
 		Timestamp: time.Now(),

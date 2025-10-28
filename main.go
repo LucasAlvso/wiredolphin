@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -37,6 +38,18 @@ func main() {
 	// Initialize components
 	globalStats := stats.NewGlobalStats()
 
+	// Attempt to determine the client subnet from the monitored interface (first IPv4 CIDR)
+	if iface, err := net.InterfaceByName(ifaceName); err == nil {
+		if addrs, err := iface.Addrs(); err == nil {
+			for _, a := range addrs {
+				if ipNet, ok := a.(*net.IPNet); ok && ipNet.IP.To4() != nil {
+					globalStats.SetClientFilter(ipNet)
+					break
+				}
+			}
+		}
+	}
+
 	csvLogger, err := logger.NewCSVLogger()
 	if err != nil {
 		fmt.Printf("Error creating CSV logger: %v\n", err)
@@ -57,7 +70,7 @@ func main() {
 	defer capturer.Close()
 
 	// Create TUI
-	tui := ui.NewTUI(globalStats)
+	tui := ui.NewTUI(globalStats, ifaceName)
 
 	// Setup signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)

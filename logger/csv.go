@@ -120,8 +120,8 @@ func (l *CSVLogger) LogPacket(pkt *stats.PacketInfo) {
 		})
 	}
 
-	// Log to application layer CSV
-	if pkt.AppProto != "" && pkt.AppProto != "Other" {
+	// Log to application layer CSV (including 'Other' to comply with requirement)
+	if pkt.AppProto != "" {
 		l.applicationWriter.Write([]string{
 			timestamp,
 			pkt.AppProto,

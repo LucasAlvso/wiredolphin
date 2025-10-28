@@ -15,12 +15,14 @@ import (
 // TUI handles terminal user interface
 type TUI struct {
 	stats *stats.GlobalStats
+	iface string
 }
 
 // NewTUI creates a new TUI
-func NewTUI(globalStats *stats.GlobalStats) *TUI {
+func NewTUI(globalStats *stats.GlobalStats, iface string) *TUI {
 	return &TUI{
 		stats: globalStats,
+		iface: iface,
 	}
 }
 
@@ -50,7 +52,7 @@ func (t *TUI) Render() {
 	fmt.Println(centerText("NETWORK TRAFFIC MONITOR - Real-Time Statistics", 80))
 	fmt.Println("=" + strings.Repeat("=", 78) + "=")
 	uptime := time.Since(snapshot.StartTime)
-	fmt.Printf("Uptime: %s | Interface: tun0\n", formatDuration(uptime))
+	fmt.Printf("Uptime: %s | Interface: %s\n", formatDuration(uptime), t.iface)
 	fmt.Println()
 
 	// Global Statistics

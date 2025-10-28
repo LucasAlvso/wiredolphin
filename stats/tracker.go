@@ -2,6 +2,7 @@ package stats
 
 import (
 	"fmt"
+	"net"
 	"sync"
 	"time"
 )
@@ -59,6 +60,7 @@ type GlobalStats struct {
 	ClientStats  map[string]*ClientStats
 	mu           sync.RWMutex
 	StartTime    time.Time
+	clientNet    *net.IPNet
 }
 
 // NewGlobalStats creates a new GlobalStats instance
@@ -67,6 +69,13 @@ func NewGlobalStats() *GlobalStats {
 		ClientStats: make(map[string]*ClientStats),
 		StartTime:   time.Now(),
 	}
+}
+
+// SetClientFilter sets a subnet to consider as "clients" (e.g., tun0 network)
+func (gs *GlobalStats) SetClientFilter(clientCIDR *net.IPNet) {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	gs.clientNet = clientCIDR
 }
 
 // UpdateStats updates global and per-client statistics
@@ -110,12 +119,16 @@ func (gs *GlobalStats) UpdateStats(pkt *PacketInfo) {
 		gs.OtherCount++
 	}
 
-	// Update per-client statistics
+	// Update per-client statistics (restrict to configured client subnet if set)
 	if pkt.SrcIP != "" {
-		gs.updateClientStats(pkt.SrcIP, pkt.DstIP, pkt.DstPort, pkt.TransportProto, pkt.Size, true)
+		if gs.isClientIP(pkt.SrcIP) {
+			gs.updateClientStats(pkt.SrcIP, pkt.DstIP, pkt.DstPort, pkt.TransportProto, pkt.Size, true)
+		}
 	}
 	if pkt.DstIP != "" && pkt.SrcIP != pkt.DstIP {
-		gs.updateClientStats(pkt.DstIP, pkt.SrcIP, pkt.SrcPort, pkt.TransportProto, pkt.Size, false)
+		if gs.isClientIP(pkt.DstIP) {
+			gs.updateClientStats(pkt.DstIP, pkt.SrcIP, pkt.SrcPort, pkt.TransportProto, pkt.Size, false)
+		}
 	}
 }
 
@@ -157,6 +170,17 @@ func (gs *GlobalStats) updateClientStats(clientIP, remoteIP string, port uint16,
 		remote.PacketsReceived++
 		remote.BytesReceived += int64(size)
 	}
+}
+
+func (gs *GlobalStats) isClientIP(ipStr string) bool {
+	if gs.clientNet == nil {
+		return true
+	}
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+	return gs.clientNet.Contains(ip)
 }
 
 // GetSnapshot returns a thread-safe copy of current statistics
