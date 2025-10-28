@@ -33,7 +33,8 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends \
      ca-certificates tzdata \
      net-tools iproute2 iputils-ping iptables \
-     ncurses-bin bash \
+    ncurses-bin bash \
+    curl netcat-openbsd dnsutils \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /logs
@@ -42,8 +43,9 @@ COPY --from=builder /app/wiredolphin /app/wiredolphin
 COPY --from=tunnel-builder /build/tunnel/traffic_tunnel /usr/local/bin/traffic_tunnel
 COPY scripts/entrypoint.sh /entrypoint.sh
 COPY scripts/entrypoint-client.sh /entrypoint-client.sh
+COPY scripts/generate-traffic.sh /generate-traffic.sh
 RUN chmod +x /entrypoint.sh
-RUN chmod +x /entrypoint-client.sh
+RUN chmod +x /entrypoint-client.sh /generate-traffic.sh
 
 # Default interface can be overridden with IFACE env
 ENV IFACE=tun0 \

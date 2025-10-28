@@ -5,8 +5,14 @@ set -euo pipefail
 : "${CLIENT_UNDERLAY_IF:=eth0}"
 : "${CLIENT_SCRIPT:=/client-config/client1.sh}"
 : "${TUN_WAIT_TIMEOUT:=20}"
-# Optional: simple generator to produce traffic once tunnel is up
+# Optional: traffic generator controls
+: "${GEN_TRAFFIC:=false}"
 : "${PING_TARGET:=}"
+: "${PING_COUNT:=3}"
+: "${HTTP_URL:=}"
+: "${DNS_NAME:=}"
+: "${DNS_SERVER:=}"
+: "${NTP_SERVER:=}"
 
 echo "[client] Starting traffic_tunnel client with IFACE=${IFACE}, CLIENT_UNDERLAY_IF=${CLIENT_UNDERLAY_IF}, CLIENT_SCRIPT=${CLIENT_SCRIPT}"
 
@@ -46,11 +52,11 @@ fi
 
 echo "[client] ${IFACE} is ready."
 
-# Optional: generate some traffic to exercise the tunnel
-if [[ -n "${PING_TARGET}" ]]; then
-  echo "[client] Pinging ${PING_TARGET} through default routes (tunnel client should intercept)..."
-  # Run ping in background; ignore failures
-  ( ping -i 1 -c 5 "${PING_TARGET}" || true ) &
+if [[ "${GEN_TRAFFIC}" == "true" ]]; then
+  echo "[client] Generating sample traffic"
+  PING_TARGET="${PING_TARGET}" PING_COUNT="${PING_COUNT}" \
+  HTTP_URL="${HTTP_URL}" DNS_NAME="${DNS_NAME}" DNS_SERVER="${DNS_SERVER}" \
+  NTP_SERVER="${NTP_SERVER}" /generate-traffic.sh || true
 fi
 
 echo "[client] Client is running. Sleeping indefinitely."

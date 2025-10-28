@@ -54,8 +54,14 @@ services:
       - IFACE=tun0
       - CLIENT_UNDERLAY_IF=eth0
       - CLIENT_SCRIPT=/client-config/client1.sh
-      # Optional: generate some traffic
-      # - PING_TARGET=1.1.1.1
+      # Generate some traffic through the tunnel
+      - GEN_TRAFFIC=true
+      - PING_TARGET=1.1.1.1
+      - PING_COUNT=3
+      - HTTP_URL=http://example.com/
+      - DNS_NAME=example.com
+      - DNS_SERVER=1.1.1.1
+      - NTP_SERVER=pool.ntp.org
       - TUN_WAIT_TIMEOUT=20
     entrypoint: ["/entrypoint-client.sh"]
 
@@ -75,7 +81,12 @@ services:
       - IFACE=tun0
       - CLIENT_UNDERLAY_IF=eth0
       - CLIENT_SCRIPT=/client-config/client2.sh
-      # Optional traffic
-      # - PING_TARGET=8.8.8.8
+      - GEN_TRAFFIC=true
+      - PING_TARGET=8.8.8.8
+      - PING_COUNT=3
+      - HTTP_URL=http://example.org/
+      - DNS_NAME=cloudflare.com
+      - DNS_SERVER=8.8.8.8
+      - NTP_SERVER=time.google.com
       - TUN_WAIT_TIMEOUT=20
     entrypoint: ["/entrypoint-client.sh"]
