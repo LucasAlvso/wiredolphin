@@ -1,0 +1,23 @@
+# Build artifacts
+wiredolphin
+wiredolphin-*
+
+# Logs
+*.csv
+logs/
+
+# VCS
+.git
+.gitignore
+
+# Editor/OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+Thumbs.db
+Desktop.ini
+
+# Dependencies cache (not needed in image context)
+vendor/

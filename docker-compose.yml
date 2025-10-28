@@ -1,0 +1,30 @@
+version: "3.8"
+
+services:
+  wiredolphin:
+    build: .
+    container_name: wiredolphin
+    restart: unless-stopped
+
+    # Share host network namespace so the container can see host interfaces (e.g., tun0)
+    # Note: On Docker Desktop for Windows/macOS, host networking refers to the Linux VM
+    # and won't expose the host OS interfaces. Prefer running on a Linux host.
+    network_mode: host
+
+    # Raw packet capture requires NET_RAW (and sometimes NET_ADMIN depending on host setup)
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+
+    # Current working directory holds CSV logs; mount to persist on host
+    working_dir: /logs
+    volumes:
+      - ./logs:/logs
+
+    # Select monitored interface (defaults to tun0). Override via env or CLI.
+    environment:
+      - IFACE=tun0
+
+    # Example: to target a different interface, uncomment and adjust
+    # environment:
+    #   - IFACE=eth0
