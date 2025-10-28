@@ -49,7 +49,7 @@ services:
     devices:
       - "/dev/net/tun:/dev/net/tun"
     volumes:
-      - ./tunnel/clients:/client-config:ro
+      - ./traffic_tunnel:/client-config:ro
     environment:
       - IFACE=tun0
       - CLIENT_UNDERLAY_IF=eth0
@@ -76,7 +76,7 @@ services:
     devices:
       - "/dev/net/tun:/dev/net/tun"
     volumes:
-      - ./tunnel/clients:/client-config:ro
+      - ./traffic_tunnel:/client-config:ro
     environment:
       - IFACE=tun0
       - CLIENT_UNDERLAY_IF=eth0
