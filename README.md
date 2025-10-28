@@ -49,6 +49,12 @@ $env:TUN_UNDERLAY_IF = "eth0"; docker compose up -d --build
 # Skip starting the tunnel (if you manage it externally) and only run the analyzer inside the container:
 $env:TUN_START = "false"; docker compose up -d --build
 
+# Optionally set the TUN address (applied if the tunnel binary didn't assign one):
+$env:TUN_ADDR_CIDR = "172.31.66.1/24"; docker compose up -d --build
+
+# Control NAT (MASQUERADE) on the underlay interface:
+$env:TUN_ENABLE_NAT = "true"; docker compose up -d --build
+
 # Bash equivalents:
 # IFACE=tun0 TUN_UNDERLAY_IF=eth0 docker compose up -d --build
 # TUN_START=false docker compose up -d --build
@@ -64,6 +70,7 @@ Notes:
 - The image builds `traffic_tunnel` from the sources in `./tunnel` and runs it in server mode (`-s`) on `$TUN_UNDERLAY_IF`, creating `$IFACE` (tun0 by default) inside the container; the analyzer attaches to it.
 - The container requires `CAP_NET_ADMIN` and `CAP_NET_RAW`, and `/dev/net/tun` to create the virtual interface; compose sets these up.
 - On Docker Desktop for Windows/macOS, all of this runs inside the Linux VM. To observe real host traffic, prefer running on a Linux host where you control the underlay interface.
+ - The entrypoint ensures the `$IFACE` is up, assigns `$TUN_ADDR_CIDR` if there is no IP, and optionally enables NAT if `$TUN_ENABLE_NAT=true`.
 
 ## Usage
 

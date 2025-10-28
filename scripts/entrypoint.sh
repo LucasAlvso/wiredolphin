@@ -6,6 +6,9 @@ set -euo pipefail
 : "${TUN_UNDERLAY_IF:=eth0}"
 : "${TUN_START:=true}"
 : "${TUN_WAIT_TIMEOUT:=20}"
+# Optional: configure IP and NAT on the TUN interface (useful if tunnel binary doesn't do it)
+: "${TUN_ADDR_CIDR:=172.31.66.1/24}"
+: "${TUN_ENABLE_NAT:=true}"
 
 echo "[entrypoint] Starting with IFACE=${IFACE}, TUN_UNDERLAY_IF=${TUN_UNDERLAY_IF}, TUN_START=${TUN_START}"
 
@@ -43,7 +46,27 @@ if [[ "${TUN_START}" == "true" ]]; then
       exit 1
     fi
   done
-  echo "[entrypoint] ${IFACE} is up."
+  # Ensure interface is up
+  if ! ip link show dev "${IFACE}" | grep -q "state UP"; then
+    echo "[entrypoint] Bringing ${IFACE} up..."
+    ip link set dev "${IFACE}" up || true
+  fi
+
+  # Ensure it has an IP address; only assign if none present
+  if ! ip addr show dev "${IFACE}" | grep -q "inet "; then
+    echo "[entrypoint] Assigning ${TUN_ADDR_CIDR} to ${IFACE}..."
+    ip addr add "${TUN_ADDR_CIDR}" dev "${IFACE}" || true
+  fi
+
+  # Optionally enable simple MASQUERADE on underlay interface for egress
+  if [[ "${TUN_ENABLE_NAT}" == "true" ]]; then
+    echo "[entrypoint] Ensuring NAT (MASQUERADE) on ${TUN_UNDERLAY_IF}..."
+    if ! iptables -t nat -C POSTROUTING -o "${TUN_UNDERLAY_IF}" -j MASQUERADE 2>/dev/null; then
+      iptables -t nat -A POSTROUTING -o "${TUN_UNDERLAY_IF}" -j MASQUERADE || true
+    fi
+  fi
+
+  echo "[entrypoint] ${IFACE} is ready."
 else
   echo "[entrypoint] Skipping tunnel startup (TUN_START=false). Assuming ${IFACE} exists."
 fi
