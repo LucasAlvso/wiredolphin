@@ -1,7 +1,6 @@
-version: "3.8"
-
 services:
   wiredolphin:
+    image: wiredolphin:latest
     build: .
     container_name: wiredolphin
     restart: unless-stopped
