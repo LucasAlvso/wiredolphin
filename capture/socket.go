@@ -73,7 +73,12 @@ func (c *Capturer) Start(done <-chan struct{}) error {
 
 			n, from, err := unix.Recvfrom(c.fd, buffer, 0)
 			if err != nil {
-				if err == unix.EAGAIN || err == unix.EWOULDBLOCK {
+				// Handle transient/non-fatal errors gracefully
+				if err == unix.EAGAIN || err == unix.EWOULDBLOCK || err == unix.EINTR || err == unix.ENETDOWN {
+					// brief pause on ENETDOWN to avoid busy loop
+					if err == unix.ENETDOWN {
+						time.Sleep(100 * time.Millisecond)
+					}
 					continue
 				}
 				return fmt.Errorf("error receiving packet: %v", err)
