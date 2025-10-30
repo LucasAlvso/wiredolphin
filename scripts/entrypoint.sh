@@ -2,7 +2,10 @@
 set -euo pipefail
 
 # Defaults
-: "${IFACE:=tun0}"
+# TUN_IFACE is the virtual tunnel interface created by traffic_tunnel
+: "${TUN_IFACE:=tun0}"
+# ANALYZER_IFACE is the interface the Go analyzer will capture on (e.g., tun0 or eth0)
+: "${ANALYZER_IFACE:=${IFACE:-tun0}}"
 : "${TUN_UNDERLAY_IF:=eth0}"
 : "${TUN_START:=true}"
 : "${TUN_WAIT_TIMEOUT:=20}"
@@ -10,7 +13,7 @@ set -euo pipefail
 : "${TUN_ADDR_CIDR:=172.31.66.1/24}"
 : "${TUN_ENABLE_NAT:=true}"
 
-echo "[entrypoint] Starting with IFACE=${IFACE}, TUN_UNDERLAY_IF=${TUN_UNDERLAY_IF}, TUN_START=${TUN_START}"
+echo "[entrypoint] Starting with TUN_IFACE=${TUN_IFACE}, ANALYZER_IFACE=${ANALYZER_IFACE}, TUN_UNDERLAY_IF=${TUN_UNDERLAY_IF}, TUN_START=${TUN_START}"
 
 # Ensure /dev/net/tun is present (should be provided by the host via device mapping)
 if [[ ! -e /dev/net/tun ]]; then
@@ -30,32 +33,37 @@ if [[ "${TUN_START}" == "true" ]]; then
   fi
 
   echo "[entrypoint] Enabling IP forwarding..."
-  sysctl -w net.ipv4.ip_forward=1 >/dev/null || true
+  if command -v sysctl >/dev/null 2>&1; then
+    sysctl -w net.ipv4.ip_forward=1 >/dev/null || true
+  fi
+  # Ensure via /proc as well (covers cases where sysctl is blocked)
+  echo 1 > /proc/sys/net/ipv4/ip_forward || true
 
   echo "[entrypoint] Starting traffic_tunnel on ${TUN_UNDERLAY_IF} (server mode)..."
+  # Run in background; logs will appear in container stdout (docker logs)
   /usr/local/bin/traffic_tunnel "${TUN_UNDERLAY_IF}" -s &
 
   # Wait for tun0 to be created
-  echo "[entrypoint] Waiting for ${IFACE} to appear... (timeout ${TUN_WAIT_TIMEOUT}s)"
+  echo "[entrypoint] Waiting for ${TUN_IFACE} to appear... (timeout ${TUN_WAIT_TIMEOUT}s)"
   SECS=0
-  until ip link show dev "${IFACE}" >/dev/null 2>&1; do
+  until ip link show dev "${TUN_IFACE}" >/dev/null 2>&1; do
     sleep 1
     SECS=$((SECS+1))
     if (( SECS >= TUN_WAIT_TIMEOUT )); then
-      echo "[entrypoint] ERROR: ${IFACE} did not appear within ${TUN_WAIT_TIMEOUT}s"
+      echo "[entrypoint] ERROR: ${TUN_IFACE} did not appear within ${TUN_WAIT_TIMEOUT}s"
       exit 1
     fi
   done
   # Ensure interface is up
-  if ! ip link show dev "${IFACE}" | grep -q "state UP"; then
-    echo "[entrypoint] Bringing ${IFACE} up..."
-    ip link set dev "${IFACE}" up || true
+  if ! ip link show dev "${TUN_IFACE}" | grep -q "state UP"; then
+    echo "[entrypoint] Bringing ${TUN_IFACE} up..."
+    ip link set dev "${TUN_IFACE}" up || true
   fi
 
   # Ensure it has an IP address; only assign if none present
-  if ! ip addr show dev "${IFACE}" | grep -q "inet "; then
-    echo "[entrypoint] Assigning ${TUN_ADDR_CIDR} to ${IFACE}..."
-    ip addr add "${TUN_ADDR_CIDR}" dev "${IFACE}" || true
+  if ! ip addr show dev "${TUN_IFACE}" | grep -q "inet "; then
+    echo "[entrypoint] Assigning ${TUN_ADDR_CIDR} to ${TUN_IFACE}..."
+    ip addr add "${TUN_ADDR_CIDR}" dev "${TUN_IFACE}" || true
   fi
 
   # Optionally enable simple MASQUERADE on underlay interface for egress
@@ -64,13 +72,21 @@ if [[ "${TUN_START}" == "true" ]]; then
     if ! iptables -t nat -C POSTROUTING -o "${TUN_UNDERLAY_IF}" -j MASQUERADE 2>/dev/null; then
       iptables -t nat -A POSTROUTING -o "${TUN_UNDERLAY_IF}" -j MASQUERADE || true
     fi
+
+    # Allow forwarding between tunnel and underlay
+    if ! iptables -C FORWARD -i "${TUN_IFACE}" -o "${TUN_UNDERLAY_IF}" -j ACCEPT 2>/dev/null; then
+      iptables -A FORWARD -i "${TUN_IFACE}" -o "${TUN_UNDERLAY_IF}" -j ACCEPT || true
+    fi
+    if ! iptables -C FORWARD -i "${TUN_UNDERLAY_IF}" -o "${TUN_IFACE}" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null; then
+      iptables -A FORWARD -i "${TUN_UNDERLAY_IF}" -o "${TUN_IFACE}" -m state --state RELATED,ESTABLISHED -j ACCEPT || true
+    fi
   fi
 
-  echo "[entrypoint] ${IFACE} is ready."
+  echo "[entrypoint] ${TUN_IFACE} is ready."
 else
-  echo "[entrypoint] Skipping tunnel startup (TUN_START=false). Assuming ${IFACE} exists."
+  echo "[entrypoint] Skipping tunnel startup (TUN_START=false). Assuming ${TUN_IFACE} exists."
 fi
 
-echo "[entrypoint] Starting wiredolphin on ${IFACE}..."
+echo "[entrypoint] Starting wiredolphin on ${ANALYZER_IFACE}..."
 cd /logs
-exec /app/wiredolphin "${IFACE}"
+exec /app/wiredolphin "${ANALYZER_IFACE}"
