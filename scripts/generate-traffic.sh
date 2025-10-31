@@ -34,12 +34,9 @@ fi
 if [[ -n "${NTP_SERVER}" ]]; then
   echo "[gen] NTP client packet to ${NTP_SERVER}:123"
   # Minimal SNTP client request: first byte 0x1B (LI=0, VN=3, Mode=3), rest zero
-  # Avoid storing null bytes in a shell variable; write directly to nc
-  {
-    printf '\033'
-    # 47 zero bytes
-    dd if=/dev/zero bs=1 count=47 status=none
-  } | nc -u -w1 "${NTP_SERVER}" 123 >/dev/null 2>&1 || true
+  req=$(printf '\033' && printf '\0%.0s' {1..47})
+  # shellcheck disable=SC2059
+  printf "%b" "${req}" | nc -u -w1 "${NTP_SERVER}" 123 >/dev/null 2>&1 || true
 fi
 
 echo "[gen] Traffic generation complete."

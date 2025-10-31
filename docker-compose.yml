@@ -3,7 +3,6 @@ services:
     image: wiredolphin:latest
     build: .
     container_name: wiredolphin
-    mac_address: "02:42:ac:11:00:01"
     restart: unless-stopped
     network_mode: host
 
@@ -26,11 +25,8 @@ services:
 
     # Environment configuration
     environment:
-      # Analyzer interface; to decapsulate on the underlay, set to eth0 and enable DECAP_PROTO255
-      - ANALYZER_IFACE=tun0
-      - DECAP_PROTO255=true
-      # Tunnel interface created by traffic_tunnel
-      - TUN_IFACE=tun0
+      # Analyzer interface (created by the tunnel)
+      - IFACE=tun0
       # Physical/underlay interface (inside the container) used by the tunnel server
       - TUN_UNDERLAY_IF=eth0
       # Whether to start the tunnel process; set to false if you already run tunnel externally
@@ -41,8 +37,6 @@ services:
       - TUN_ADDR_CIDR=172.31.66.1/24
       # Enable NAT on the underlay interface
       - TUN_ENABLE_NAT=true
-      # Raw Ethernet encapsulation (default); set TUN_USE_UDP=true to use UDP fallback
-      - TUN_USE_UDP=false
 
   client1:
     image: wiredolphin:latest
@@ -61,9 +55,6 @@ services:
       - IFACE=tun0
       - CLIENT_UNDERLAY_IF=eth0
       - CLIENT_SCRIPT=/client-config/client1.sh
-      # Use broadcast delivery for tunnel frames to improve compatibility across Docker/host bridges
-      # Leave TUN_PEER_MAC unset to broadcast; set it to a MAC to force unicast
-      # - TUN_PEER_MAC=02:42:ac:11:00:01
       # Generate some traffic through the tunnel
       - GEN_TRAFFIC=true
       - PING_TARGET=1.1.1.1
@@ -73,9 +64,6 @@ services:
       - DNS_SERVER=1.1.1.1
       - NTP_SERVER=pool.ntp.org
       - TUN_WAIT_TIMEOUT=20
-      # Raw Ethernet delivery: set peer MAC to server's eth0
-      - TUN_USE_UDP=false
-      - TUN_PEER_MAC=02:42:ac:11:00:01
     entrypoint: ["/entrypoint-client.sh"]
 
   client2:
@@ -95,9 +83,6 @@ services:
       - IFACE=tun0
       - CLIENT_UNDERLAY_IF=eth0
       - CLIENT_SCRIPT=/client-config/client2.sh
-      # Use broadcast delivery for tunnel frames to improve compatibility across Docker/host bridges
-      # Leave TUN_PEER_MAC unset to broadcast; set it to a MAC to force unicast
-      # - TUN_PEER_MAC=02:42:ac:11:00:01
       - GEN_TRAFFIC=true
       - PING_TARGET=8.8.8.8
       - PING_COUNT=3
@@ -106,7 +91,4 @@ services:
       - DNS_SERVER=8.8.8.8
       - NTP_SERVER=time.google.com
       - TUN_WAIT_TIMEOUT=20
-      # Raw Ethernet delivery: set peer MAC to server's eth0
-      - TUN_USE_UDP=false
-      - TUN_PEER_MAC=02:42:ac:11:00:01
     entrypoint: ["/entrypoint-client.sh"]

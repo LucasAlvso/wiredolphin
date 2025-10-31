@@ -1,20 +1,18 @@
-#include <stdint.h>
-
 #define SERVER_SCRIPT "server.sh"
 #define ETH_LEN	1518
 
-struct __attribute__((__packed__)) eth_hdr {
+struct eth_hdr {
 	uint8_t dst_addr[6];
 	uint8_t src_addr[6];
 	uint16_t eth_type;
 };
 
-struct __attribute__((__packed__)) ip_hdr {
+struct ip_hdr {
 	uint8_t ver;			/* version, header length */
 	uint8_t tos;			/* type of service */
-	uint16_t len;			/* total length */
+	int16_t len;			/* total length */
 	uint16_t id;			/* identification */
-	uint16_t off;			/* fragment offset field */
+	int16_t off;			/* fragment offset field */
 	uint8_t ttl;			/* time to live */
 	uint8_t proto;			/* protocol */
 	uint16_t sum;			/* checksum */
@@ -22,7 +20,7 @@ struct __attribute__((__packed__)) ip_hdr {
 	uint8_t dst[4];			/* destination address */
 };
 
-struct __attribute__((__packed__)) eth_ip_s {
+struct eth_ip_s {
 	struct eth_hdr ethernet;
 	struct ip_hdr ip;
 };

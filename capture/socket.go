@@ -6,7 +6,6 @@ package capture
 import (
 	"fmt"
 	"net"
-	"os"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -167,21 +166,6 @@ func (c *Capturer) parseIPv4(data []byte, pkt *stats.PacketInfo) {
 	ipHeader, payload, err := parser.ParseIPv4(data)
 	if err != nil {
 		return
-	}
-
-	// Optional decapsulation: if outer IPv4 protocol is 0xff (custom tunnel),
-	// peel the outer header and parse the inner IP packet instead.
-	if os.Getenv("DECAP_PROTO255") == "true" && ipHeader.Protocol == 0xff {
-		if len(payload) > 0 {
-			v := payload[0] >> 4
-			if v == 4 {
-				c.parseIPv4(payload, pkt)
-				return
-			} else if v == 6 {
-				c.parseIPv6(payload, pkt)
-				return
-			}
-		}
 	}
 
 	pkt.NetworkProto = "IPv4"
