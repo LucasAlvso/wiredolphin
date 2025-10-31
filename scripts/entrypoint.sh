@@ -66,6 +66,14 @@ if [[ "${TUN_START}" == "true" ]]; then
     fi
   fi
 
+  # Provide simple TCP listeners on 80 and 443 so clients can generate HTTP/HTTPS over the tunnel
+  if command -v nc >/dev/null 2>&1; then
+    echo "[entrypoint] Starting simple TCP listeners on 0.0.0.0:80 and :443 for HTTP/HTTPS testing..."
+    # Accept and immediately close; payload from clients is enough for app-layer detection
+    ( while true; do nc -l -p 80 -q 1 >/dev/null; done ) &
+    ( while true; do nc -l -p 443 -q 1 >/dev/null; done ) &
+  fi
+
   echo "[entrypoint] ${IFACE} is ready."
 else
   echo "[entrypoint] Skipping tunnel startup (TUN_START=false). Assuming ${IFACE} exists."

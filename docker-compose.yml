@@ -59,7 +59,7 @@ services:
       - GEN_TRAFFIC=true
       - PING_TARGET=1.1.1.1
       - PING_COUNT=3
-      - HTTP_URL=http://example.com/
+      - HTTP_URL=http://172.31.66.1/
       - DNS_NAME=example.com
       - DNS_SERVER=1.1.1.1
       - NTP_SERVER=pool.ntp.org
@@ -86,7 +86,7 @@ services:
       - GEN_TRAFFIC=true
       - PING_TARGET=8.8.8.8
       - PING_COUNT=3
-      - HTTP_URL=http://example.org/
+      - HTTP_URL=http://172.31.66.1/
       - DNS_NAME=cloudflare.com
       - DNS_SERVER=8.8.8.8
       - NTP_SERVER=time.google.com
