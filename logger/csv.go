@@ -32,9 +32,7 @@ func NewCSVLogger() (*CSVLogger, error) {
 	}
 	logger.internetFile = internetFile
 	logger.internetWriter = csv.NewWriter(internetFile)
-
-	// Write header
-	logger.internetWriter.Write([]string{
+	if err := writeHeader(logger.internetWriter, "camada_internet.csv", []string{
 		"Timestamp",
 		"Protocol",
 		"Source IP",
@@ -42,8 +40,10 @@ func NewCSVLogger() (*CSVLogger, error) {
 		"Protocol Number",
 		"ICMP Info",
 		"Total Bytes",
-	})
-	logger.internetWriter.Flush()
+	}); err != nil {
+		internetFile.Close()
+		return nil, err
+	}
 
 	// Open transport layer CSV
 	transportFile, err := os.Create("camada_transporte.csv")
@@ -53,9 +53,7 @@ func NewCSVLogger() (*CSVLogger, error) {
 	}
 	logger.transportFile = transportFile
 	logger.transportWriter = csv.NewWriter(transportFile)
-
-	// Write header
-	logger.transportWriter.Write([]string{
+	if err := writeHeader(logger.transportWriter, "camada_transporte.csv", []string{
 		"Timestamp",
 		"Protocol",
 		"Source IP",
@@ -63,8 +61,11 @@ func NewCSVLogger() (*CSVLogger, error) {
 		"Destination IP",
 		"Destination Port",
 		"Total Bytes",
-	})
-	logger.transportWriter.Flush()
+	}); err != nil {
+		internetFile.Close()
+		transportFile.Close()
+		return nil, err
+	}
 
 	// Open application layer CSV
 	applicationFile, err := os.Create("camada_aplicacao.csv")
@@ -75,14 +76,16 @@ func NewCSVLogger() (*CSVLogger, error) {
 	}
 	logger.applicationFile = applicationFile
 	logger.applicationWriter = csv.NewWriter(applicationFile)
-
-	// Write header
-	logger.applicationWriter.Write([]string{
+	if err := writeHeader(logger.applicationWriter, "camada_aplicacao.csv", []string{
 		"Timestamp",
 		"Protocol",
 		"Protocol Info",
-	})
-	logger.applicationWriter.Flush()
+	}); err != nil {
+		internetFile.Close()
+		transportFile.Close()
+		applicationFile.Close()
+		return nil, err
+	}
 
 	return logger, nil
 }
@@ -96,7 +99,7 @@ func (l *CSVLogger) LogPacket(pkt *stats.PacketInfo) {
 
 	// Log to internet layer CSV
 	if pkt.NetworkProto != "" {
-		l.internetWriter.Write([]string{
+		l.writeRecord(l.internetWriter, "camada_internet.csv", []string{
 			timestamp,
 			pkt.NetworkProto,
 			pkt.SrcIP,
@@ -109,7 +112,7 @@ func (l *CSVLogger) LogPacket(pkt *stats.PacketInfo) {
 
 	// Log to transport layer CSV
 	if pkt.TransportProto != "" && (pkt.TransportProto == "TCP" || pkt.TransportProto == "UDP") {
-		l.transportWriter.Write([]string{
+		l.writeRecord(l.transportWriter, "camada_transporte.csv", []string{
 			timestamp,
 			pkt.TransportProto,
 			pkt.SrcIP,
@@ -122,7 +125,7 @@ func (l *CSVLogger) LogPacket(pkt *stats.PacketInfo) {
 
 	// Log to application layer CSV (including 'Other' to comply with requirement)
 	if pkt.AppProto != "" {
-		l.applicationWriter.Write([]string{
+		l.writeRecord(l.applicationWriter, "camada_aplicacao.csv", []string{
 			timestamp,
 			pkt.AppProto,
 			pkt.AppInfo,
@@ -135,9 +138,9 @@ func (l *CSVLogger) Flush() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	l.internetWriter.Flush()
-	l.transportWriter.Flush()
-	l.applicationWriter.Flush()
+	flushWriter(l.internetWriter, "camada_internet.csv")
+	flushWriter(l.transportWriter, "camada_transporte.csv")
+	flushWriter(l.applicationWriter, "camada_aplicacao.csv")
 }
 
 // Close closes all CSV files
@@ -145,9 +148,9 @@ func (l *CSVLogger) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	l.internetWriter.Flush()
-	l.transportWriter.Flush()
-	l.applicationWriter.Flush()
+	flushWriter(l.internetWriter, "camada_internet.csv")
+	flushWriter(l.transportWriter, "camada_transporte.csv")
+	flushWriter(l.applicationWriter, "camada_aplicacao.csv")
 
 	var errs []error
 	if err := l.internetFile.Close(); err != nil {
@@ -180,4 +183,28 @@ func (l *CSVLogger) StartPeriodicFlush(interval time.Duration, done <-chan struc
 			}
 		}
 	}()
+}
+
+func (l *CSVLogger) writeRecord(writer *csv.Writer, label string, record []string) {
+	if err := writer.Write(record); err != nil {
+		fmt.Fprintf(os.Stderr, "wiredolphin: failed to write %s: %v\n", label, err)
+	}
+}
+
+func writeHeader(writer *csv.Writer, label string, record []string) error {
+	if err := writer.Write(record); err != nil {
+		return fmt.Errorf("failed to write header for %s: %w", label, err)
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return fmt.Errorf("failed to flush header for %s: %w", label, err)
+	}
+	return nil
+}
+
+func flushWriter(writer *csv.Writer, label string) {
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		fmt.Fprintf(os.Stderr, "wiredolphin: flush error for %s: %v\n", label, err)
+	}
 }

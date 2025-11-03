@@ -95,14 +95,7 @@ func (t *TUI) Render() {
 		}
 		sort.Strings(clientIPs)
 
-		// Display up to 5 clients
-		displayCount := len(clientIPs)
-		if displayCount > 5 {
-			displayCount = 5
-		}
-
-		for i := 0; i < displayCount; i++ {
-			clientIP := clientIPs[i]
+		for _, clientIP := range clientIPs {
 			client := snapshot.ClientStats[clientIP]
 
 			fmt.Printf("\nClient: %s\n", client.IP)
@@ -126,14 +119,7 @@ func (t *TUI) Render() {
 				return remotes[i].totalTraffic > remotes[j].totalTraffic
 			})
 
-			// Display top 3 remote hosts for this client
-			remoteDisplayCount := len(remotes)
-			if remoteDisplayCount > 3 {
-				remoteDisplayCount = 3
-			}
-
-			for j := 0; j < remoteDisplayCount; j++ {
-				remote := remotes[j]
+			for _, remote := range remotes {
 
 				// Get ports list
 				var ports []uint16
@@ -164,14 +150,6 @@ func (t *TUI) Render() {
 					stats.FormatBytes(remote.host.BytesSent+remote.host.BytesReceived))
 				fmt.Println()
 			}
-
-			if len(remotes) > remoteDisplayCount {
-				fmt.Printf("  ... and %d more remote host(s)\n", len(remotes)-remoteDisplayCount)
-			}
-		}
-
-		if len(clientIPs) > displayCount {
-			fmt.Printf("\n... and %d more client(s)\n", len(clientIPs)-displayCount)
 		}
 	}
 

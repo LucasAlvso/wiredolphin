@@ -145,7 +145,7 @@ int tun_alloc(char *dev, int flags)
 	tun_fd = open(clonedev, O_RDWR);
 
 	if(tun_fd == -1) {
-		perror("Unable to open clone device\n");
+		perror("Unable to open clone device");
 		exit(EXIT_FAILURE);
 	}
 
@@ -158,9 +158,10 @@ int tun_alloc(char *dev, int flags)
 	}
 
 	if ((err=ioctl(tun_fd, TUNSETIFF, (void *)&ifr)) < 0) {
+		int saved_errno = errno;
 		close(tun_fd);
-		fprintf(stderr, "Error returned by ioctl(): %s\n", strerror(err));
-		perror("Error in tun_alloc()\n");
+		errno = saved_errno;
+		fprintf(stderr, "Error returned by ioctl(TUNSETIFF): %s\n", strerror(errno));
 		exit(EXIT_FAILURE);
 	}
 
@@ -175,8 +176,8 @@ int tun_read(int tun_fd, char *buffer, int length)
 	bytes_read = read(tun_fd, buffer, length);
 
 	if (bytes_read == -1) {
-		perror("Unable to read from tunnel\n");
-		exit(EXIT_FAILURE);
+		perror("tun_read: read");
+		return -1;
 	} else {
 		return bytes_read;
 	}
@@ -191,8 +192,8 @@ int tun_write(int tun_fd, char *buffer, int length)
 		if (errno == EIO || errno == ENETDOWN) {
 			return -1;
 		}
-		perror("Unable to write to tunnel\n");
-		exit(EXIT_FAILURE);
+		perror("tun_write: write");
+		return -1;
 	} else {
 		return bytes_written;
 	}
@@ -242,10 +243,10 @@ void configure_network(int server, char *client_script)
 void print_hexdump(char *str, int len)
 {
 	for (int i = 0; i < len; i++) {
-		if (i % 16 == 0) printf("\n");
+		if (i % 16 == 0 && i != 0) printf("\n");
 		printf("%02x ", (unsigned char)str[i]);
 	}
-	printf("\n");
+	if (len > 0) printf("\n");
 }
 
 void run_tunnel(int server, int argc, char *argv[])
@@ -330,7 +331,16 @@ void run_tunnel(int server, int argc, char *argv[])
 		FD_SET(tun_fd, &fs);
 		FD_SET(sock_fd, &fs);
 
-		select(tun_fd > sock_fd ? tun_fd + 1 : sock_fd + 1, &fs, NULL, NULL, NULL);
+		int max_fd = tun_fd > sock_fd ? tun_fd : sock_fd;
+		int ready = select(max_fd + 1, &fs, NULL, NULL, NULL);
+		if (ready < 0) {
+			if (errno == EINTR)
+				continue;
+			perror("select");
+			break;
+		}
+		if (ready == 0)
+			continue;
 
 		if (FD_ISSET(tun_fd, &fs)) {
 			printf("[DEBUG] Read tun device\n");
@@ -338,10 +348,8 @@ void run_tunnel(int server, int argc, char *argv[])
 			
 			/* Fill the payload with tunnel data */
 			size = tun_read(tun_fd, payload, MTU);
-			if (size == -1) {
-				perror("Error while reading from tun device\n");
-				exit(EXIT_FAILURE);
-			}
+			if (size == -1)
+				continue;
 			print_hexdump(payload, size);
 
 			uint16_t ether_type = ETH_P_IP;
@@ -390,10 +398,14 @@ void run_tunnel(int server, int argc, char *argv[])
 			char *recv_payload = (char *)&buf + sizeof(struct eth_hdr);
 
 			if (recv_eth_type == ETH_P_IP || recv_eth_type == ETH_P_IPV6) {
-				if (tun_write(tun_fd, recv_payload, size - sizeof(struct eth_hdr)) == -1) {
+				if (tun_write(tun_fd, recv_payload, size - sizeof(struct eth_hdr)) == -1)
 					continue;
-				}
 			}
 		}
 	}
+
+	close(tun_fd);
+	close(sock_fd);
+	if (ioctl_fd >= 0)
+		close(ioctl_fd);
 }

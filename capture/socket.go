@@ -222,18 +222,26 @@ func (c *Capturer) parseIPv6(data []byte, pkt *stats.PacketInfo) {
 	pkt.NetworkProto = "IPv6"
 	pkt.SrcIP = ipHeader.SrcIP.String()
 	pkt.DstIP = ipHeader.DstIP.String()
-	pkt.ProtocolNum = ipHeader.NextHeader
+	upperProto, upperPayload, hasUpper, err := parser.StripIPv6Extensions(ipHeader.NextHeader, payload)
+	if err != nil {
+		return
+	}
+
+	pkt.ProtocolNum = upperProto
+	if !hasUpper {
+		return
+	}
 
 	// Parse transport layer
-	switch ipHeader.NextHeader {
+	switch upperProto {
 	case parser.ProtoTCP:
-		c.parseTCP(payload, pkt)
+		c.parseTCP(upperPayload, pkt)
 	case parser.ProtoUDP:
-		c.parseUDP(payload, pkt)
+		c.parseUDP(upperPayload, pkt)
 	case parser.ProtoICMPv6:
 		pkt.NetworkProto = "ICMPv6"
 		pkt.TransportProto = "ICMPv6"
-		if icmpHeader, err := parser.ParseICMP(payload); err == nil {
+		if icmpHeader, err := parser.ParseICMP(upperPayload); err == nil {
 			pkt.ICMPInfo = parser.GetICMPTypeString(icmpHeader.Type)
 		}
 	}
