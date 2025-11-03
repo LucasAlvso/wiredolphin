@@ -32,7 +32,7 @@ static int get_default_gateway(const char *ifName, struct in_addr *gw)
 
 	char iface[IFNAMSIZ];
 	unsigned long destination, gateway;
-	int flags;
+	unsigned int flags;
 	int found = -1;
 
 	char line[256];
@@ -41,8 +41,9 @@ static int get_default_gateway(const char *ifName, struct in_addr *gw)
 		return -1;
 	}
 
-	while (fscanf(fp, "%s %lx %lx %X %*d %*d %*d %*lx %*d %*d %*d\n",
-			  iface, &destination, &gateway, &flags) == 4) {
+	while (fgets(line, sizeof(line), fp)) {
+		if (sscanf(line, "%63s %lx %lx %X", iface, &destination, &gateway, &flags) < 4)
+			continue;
 		if (strcmp(iface, ifName) != 0)
 			continue;
 		if (destination != 0)
@@ -62,13 +63,13 @@ static int get_interface_ipv4(int sock_fd, const char *ifName, struct in_addr *a
 {
 	struct ifreq ifr;
 	memset(&ifr, 0, sizeof(ifr));
-	strncpy(ifr.ifr_name, ifName, IFNAMSIZ - 1);
+	snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), "%s", ifName);
 	if (ioctl(sock_fd, SIOCGIFADDR, &ifr) < 0)
 		return -1;
 	*addr = ((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr;
 
 	memset(&ifr, 0, sizeof(ifr));
-	strncpy(ifr.ifr_name, ifName, IFNAMSIZ - 1);
+	snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), "%s", ifName);
 	if (ioctl(sock_fd, SIOCGIFNETMASK, &ifr) < 0)
 		return -1;
 	*netmask = ((struct sockaddr_in *)&ifr.ifr_netmask)->sin_addr;
@@ -104,7 +105,7 @@ static int lookup_mac(int ioctl_fd, const char *ifName, struct in_addr target, u
 	struct sockaddr_in *pa = (struct sockaddr_in *)&req.arp_pa;
 	pa->sin_family = AF_INET;
 	pa->sin_addr = target;
-	strncpy(req.arp_dev, ifName, IFNAMSIZ - 1);
+	snprintf(req.arp_dev, sizeof(req.arp_dev), "%s", ifName);
 
 	if (ioctl(ioctl_fd, SIOCGARP, &req) < 0)
 		return -1;
@@ -153,7 +154,7 @@ int tun_alloc(char *dev, int flags)
 	ifr.ifr_flags = flags;
 
 	if (*dev) {
-		strncpy(ifr.ifr_name, dev, IFNAMSIZ-1);
+		snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), "%s", dev);
 	}
 
 	if ((err=ioctl(tun_fd, TUNSETIFF, (void *)&ifr)) < 0) {
@@ -204,17 +205,19 @@ void configure_network(int server, char *client_script)
 	char *const args[] = {path, NULL};
 
 	if (server) {
-		if (sizeof(SERVER_SCRIPT) > sizeof(path)){
+		size_t script_len = strlen(SERVER_SCRIPT);
+		if (script_len >= sizeof(path)){
 			perror("Server script path is too long\n");
 			exit(EXIT_FAILURE);
 		}
-		strncpy(path, SERVER_SCRIPT, strlen(SERVER_SCRIPT) + 1);
+		memcpy(path, SERVER_SCRIPT, script_len + 1);
 	} else {
-		if (strlen(client_script) > sizeof(path)){
+		size_t script_len = strlen(client_script);
+		if (script_len >= sizeof(path)){
 			perror("Client script path is too long\n");
 			exit(EXIT_FAILURE);
 		}
-		strncpy(path, client_script, sizeof(path));
+		memcpy(path, client_script, script_len + 1);
 	}
 
 	pid = fork();
@@ -260,9 +263,9 @@ void run_tunnel(int server, int argc, char *argv[])
 	struct sockaddr_ll socket_address;
 	int sock_fd, tun_fd, size;
 	int ioctl_fd = -1;
-	struct in_addr iface_addr;
-	struct in_addr iface_netmask;
-	struct in_addr gateway_addr;
+	struct in_addr iface_addr = {0};
+	struct in_addr iface_netmask = {0};
+	struct in_addr gateway_addr = {0};
 	int have_iface_addr = 0;
 	int have_gateway = 0;
 
@@ -290,14 +293,14 @@ void run_tunnel(int server, int argc, char *argv[])
 		perror("socket(AF_INET)");
 
 	/* Set interface to promiscuous mode */
-	strncpy(ifopts.ifr_name, ifName, IFNAMSIZ-1);
+	snprintf(ifopts.ifr_name, sizeof(ifopts.ifr_name), "%s", ifName);
 	ioctl(sock_fd, SIOCGIFFLAGS, &ifopts);
 	ifopts.ifr_flags |= IFF_PROMISC;
 	ioctl(sock_fd, SIOCSIFFLAGS, &ifopts);
 
 	/* Get the index of the interface */
 	memset(&if_idx, 0, sizeof(struct ifreq));
-	strncpy(if_idx.ifr_name, ifName, IFNAMSIZ-1);
+	snprintf(if_idx.ifr_name, sizeof(if_idx.ifr_name), "%s", ifName);
 	if (ioctl(sock_fd, SIOCGIFINDEX, &if_idx) < 0)
 		perror("SIOCGIFINDEX");
 	memset(&socket_address, 0, sizeof(socket_address));
@@ -307,7 +310,7 @@ void run_tunnel(int server, int argc, char *argv[])
 
 	/* Get the MAC address of the interface */
 	memset(&if_mac, 0, sizeof(struct ifreq));
-	strncpy(if_mac.ifr_name, ifName, IFNAMSIZ-1);
+	snprintf(if_mac.ifr_name, sizeof(if_mac.ifr_name), "%s", ifName);
 	if (ioctl(sock_fd, SIOCGIFHWADDR, &if_mac) < 0)
 		perror("SIOCGIFHWADDR");
 	memcpy(this_mac, if_mac.ifr_hwaddr.sa_data, 6);
