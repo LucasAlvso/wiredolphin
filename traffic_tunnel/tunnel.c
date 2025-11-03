@@ -1,6 +1,8 @@
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdio.h>
+#include <errno.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <linux/if.h>
@@ -20,8 +22,6 @@
 #include "tunnel.h"
 
 #define MTU 1472
-#define DEFAULT_ROUTE   "0.0.0.0"
-
 
 int tun_alloc(char *dev, int flags)
 {
@@ -76,6 +76,9 @@ int tun_write(int tun_fd, char *buffer, int length)
 	bytes_written = write(tun_fd, buffer, length);
 
 	if (bytes_written == -1) {
+		if (errno == EIO || errno == ENETDOWN) {
+			return -1;
+		}
 		perror("Unable to write to tunnel\n");
 		exit(EXIT_FAILURE);
 	} else {
@@ -131,29 +134,14 @@ void print_hexdump(char *str, int len)
 	printf("\n");
 }
 
-unsigned long ipchksum(char *packet)
-{
-	unsigned long sum = 0;
-
-	for (int i = 0; i < 20; i += 2)
-		sum += ((unsigned long)packet[i] << 8) | (unsigned long)packet[i + 1];
-	while (sum & 0xffff0000)
-		sum = (sum & 0xffff) + (sum >> 16);
-		
-	return sum;
-}
-
-
 void run_tunnel(int server, int argc, char *argv[])
 {
-	char this_mac[6];
-	char bcast_mac[6] =	{0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
-	char dst_mac[6] =	{0x00, 0x11, 0x22, 0x33, 0x44, 0x55};
-	char src_mac[6] =	{0x00, 0xaa, 0xbb, 0xcc, 0xdd, 0xee};
+	unsigned char this_mac[6];
+	unsigned char broadcast_mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
 	char buf[ETH_LEN];
-	struct eth_ip_s *hdr = (struct eth_ip_s *)&buf;
-	char *payload = (char *)&buf + sizeof(struct eth_ip_s);
+	struct eth_hdr *eth_hdr = (struct eth_hdr *)&buf;
+	char *payload = (char *)&buf + sizeof(struct eth_hdr);
 
 	struct ifreq if_idx, if_mac, ifopts;
 	char ifName[IFNAMSIZ];
@@ -190,6 +178,8 @@ void run_tunnel(int server, int argc, char *argv[])
 	strncpy(if_idx.ifr_name, ifName, IFNAMSIZ-1);
 	if (ioctl(sock_fd, SIOCGIFINDEX, &if_idx) < 0)
 		perror("SIOCGIFINDEX");
+	memset(&socket_address, 0, sizeof(socket_address));
+	socket_address.sll_family = AF_PACKET;
 	socket_address.sll_ifindex = if_idx.ifr_ifindex;
 	socket_address.sll_halen = ETH_ALEN;
 
@@ -225,45 +215,20 @@ void run_tunnel(int server, int argc, char *argv[])
 			print_hexdump(payload, size);
 
 			/* Fill the Ethernet frame header */
-			memcpy(hdr->ethernet.dst_addr, bcast_mac, 6);
-			memcpy(hdr->ethernet.src_addr, src_mac, 6);
-			hdr->ethernet.eth_type = htons(ETH_P_IP);
-
-			/* Fill IP header data. Fill all fields and a zeroed CRC field, then update the CRC! */
-			hdr->ip.ver = 0x45;
-			hdr->ip.tos = 0x00;
-			hdr->ip.len = htons(size + sizeof(struct ip_hdr));
-			hdr->ip.id = htons(0x00);
-			hdr->ip.off = htons(0x00);
-			hdr->ip.ttl = 50;
-			hdr->ip.proto = 0xff;
-			hdr->ip.sum = htons(0x0000);
-
-			if (server) {
-				hdr->ip.src[0] = 192;
-				hdr->ip.src[1] = 168;
-				hdr->ip.src[2] = 255;
-				hdr->ip.src[3] = 1;
-				hdr->ip.dst[0] = 192;
-				hdr->ip.dst[1] = 168;
-				hdr->ip.dst[2] = 255;
-				hdr->ip.dst[3] = 10;
-			} else {
-				hdr->ip.src[0] = 192;
-				hdr->ip.src[1] = 168;
-				hdr->ip.src[2] = 255;
-				hdr->ip.src[3] = 10;
-				hdr->ip.dst[0] = 192;
-				hdr->ip.dst[1] = 168;
-				hdr->ip.dst[2] = 255;
-				hdr->ip.dst[3] = 1;
+			memcpy(eth_hdr->dst_addr, broadcast_mac, 6);
+			memcpy(eth_hdr->src_addr, this_mac, 6);
+			uint16_t ether_type = ETH_P_IP;
+			if (size > 0) {
+				uint8_t version = (uint8_t)payload[0] >> 4;
+				if (version == 6)
+					ether_type = ETH_P_IPV6;
 			}
-
-			hdr->ip.sum = htons((~ipchksum((char *)&hdr->ip) & 0xffff));
+			eth_hdr->eth_type = htons(ether_type);
+			socket_address.sll_protocol = htons(ether_type);
 
 			/* Send the raw socket packet */
-			memcpy(socket_address.sll_addr, dst_mac, 6);
-			if (sendto(sock_fd, buf, size + sizeof(struct eth_ip_s), 0, (struct sockaddr *)&socket_address, sizeof(struct sockaddr_ll)) < 0)
+			memcpy(socket_address.sll_addr, eth_hdr->dst_addr, 6);
+			if (sendto(sock_fd, buf, size + sizeof(struct eth_hdr), 0, (struct sockaddr *)&socket_address, sizeof(struct sockaddr_ll)) < 0)
 				printf("Send failed\n");
 
 			printf("[DEBUG] Sent packet\n");
@@ -272,23 +237,17 @@ void run_tunnel(int server, int argc, char *argv[])
 		if (FD_ISSET(sock_fd, &fs)) {
 			/* Get ethernet data */
 			size = recvfrom(sock_fd, buf, ETH_LEN, 0, NULL, NULL);
-			if (hdr->ethernet.eth_type == ntohs(ETH_P_IP)){
-				if (server) {
-					if (	hdr->ip.dst[0] == 192 && hdr->ip.dst[1] == 168 &&
-						hdr->ip.dst[2] == 255 && hdr->ip.dst[3] == 1){
-						print_hexdump(buf, size);
-						/* our filter matches, send data to the tunnel */
-						tun_write(tun_fd, payload, size);
-						printf("[DEBUG] Write tun device\n");
-					}
-				} else {
-					if (	hdr->ip.dst[0] == 192 && hdr->ip.dst[1] == 168 &&
-						hdr->ip.dst[2] == 255 && hdr->ip.dst[3] == 10){
-						print_hexdump(buf, size);
-						/* our filter matches, send data to the tunnel */
-						tun_write(tun_fd, payload, size);
-						printf("[DEBUG] Write tun device\n");
-					}
+			if (size <= (int)sizeof(struct eth_hdr))
+				continue;
+			if (memcmp(eth_hdr->src_addr, this_mac, 6) == 0)
+				continue;
+
+			uint16_t recv_eth_type = ntohs(eth_hdr->eth_type);
+			char *recv_payload = (char *)&buf + sizeof(struct eth_hdr);
+
+			if (recv_eth_type == ETH_P_IP || recv_eth_type == ETH_P_IPV6) {
+				if (tun_write(tun_fd, recv_payload, size - sizeof(struct eth_hdr)) == -1) {
+					continue;
 				}
 			}
 		}

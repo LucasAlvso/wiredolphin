@@ -4,6 +4,7 @@
 package capture
 
 import (
+	"encoding/binary"
 	"fmt"
 	"net"
 	"time"
@@ -85,57 +86,25 @@ func (c *Capturer) Start(done <-chan struct{}) error {
 			}
 
 			if n > 0 {
-				// Determine if this link layer has an Ethernet header
-				isEthernet := false
-				if ll, ok := from.(*unix.SockaddrLinklayer); ok {
-					// ARPHRD_ETHER == 1; TUN devices are typically ARPHRD_NONE (65534)
-					if ll.Hatype == unix.ARPHRD_ETHER {
-						isEthernet = true
-					}
-				} else {
-					// Fallback inference: if payload starts with IPv4/IPv6 version nibble, treat as L3; else assume Ethernet
-					if n >= 1 {
-						v := buffer[0] >> 4
-						if v != 4 && v != 6 {
-							isEthernet = true
-						}
-					} else {
-						isEthernet = true
-					}
+				var ll *unix.SockaddrLinklayer
+				if addr, ok := from.(*unix.SockaddrLinklayer); ok {
+					ll = addr
 				}
-				c.processPacket(buffer[:n], isEthernet)
+				c.processPacket(buffer[:n], ll)
 			}
 		}
 	}
 }
 
 // processPacket processes a captured packet
-func (c *Capturer) processPacket(data []byte, isEthernet bool) {
-	var etherType uint16
-	var payload []byte
-	if isEthernet {
-		// Expect Ethernet header (14 bytes)
-		if len(data) < 14 {
-			return
-		}
-		etherType = uint16(data[12])<<8 | uint16(data[13])
-		payload = data[14:]
-	} else {
-		// No Ethernet header (e.g., TUN devices). Inspect IP version nibble.
-		if len(data) < 1 {
-			return
-		}
-		version := data[0] >> 4
-		switch version {
-		case 4:
-			etherType = 0x0800 // IPv4
-			payload = data
-		case 6:
-			etherType = 0x86DD // IPv6
-			payload = data
-		default:
-			return
-		}
+func (c *Capturer) processPacket(data []byte, ll *unix.SockaddrLinklayer) {
+	if len(data) == 0 {
+		return
+	}
+
+	etherType, payload, ok := decodeLinkLayer(data, ll)
+	if !ok {
+		return
 	}
 
 	pkt := &stats.PacketInfo{
@@ -143,21 +112,79 @@ func (c *Capturer) processPacket(data []byte, isEthernet bool) {
 		Size:      len(data),
 	}
 
-	// Parse based on EtherType
 	switch etherType {
-	case 0x0800: // IPv4
+	case uint16(unix.ETH_P_IP):
 		c.parseIPv4(payload, pkt)
-	case 0x86DD: // IPv6
+	case uint16(unix.ETH_P_IPV6):
 		c.parseIPv6(payload, pkt)
 	default:
-		// Unknown network protocol
 		return
 	}
 
-	// Update stats and log
 	if pkt.NetworkProto != "" {
 		c.stats.UpdateStats(pkt)
 		c.logger.LogPacket(pkt)
+	}
+}
+
+// decodeLinkLayer normalises packets coming from different Linux hatypes.
+func decodeLinkLayer(data []byte, ll *unix.SockaddrLinklayer) (uint16, []byte, bool) {
+	if ll != nil {
+		switch ll.Hatype {
+		case unix.ARPHRD_ETHER:
+			if len(data) < 14 {
+				return 0, nil, false
+			}
+			return resolveEtherType(binary.BigEndian.Uint16(data[12:14]), data[14:])
+		case unix.ARPHRD_LOOPBACK:
+			if len(data) < 16 {
+				return 0, nil, false
+			}
+			return resolveEtherType(binary.BigEndian.Uint16(data[14:16]), data[16:])
+		case unix.ARPHRD_NONE, unix.ARPHRD_RAWIP, unix.ARPHRD_TUNNEL, unix.ARPHRD_TUNNEL6:
+			return inferNetworkPayload(data)
+		}
+	}
+
+	if len(data) >= 16 {
+		etherType := binary.BigEndian.Uint16(data[14:16])
+		if etherType == uint16(unix.ETH_P_IP) || etherType == uint16(unix.ETH_P_IPV6) {
+			return resolveEtherType(etherType, data[16:])
+		}
+	}
+
+	return inferNetworkPayload(data)
+}
+
+func resolveEtherType(etherType uint16, payload []byte) (uint16, []byte, bool) {
+	for {
+		switch etherType {
+		case uint16(unix.ETH_P_8021Q), uint16(unix.ETH_P_8021AD):
+			if len(payload) < 4 {
+				return 0, nil, false
+			}
+			etherType = binary.BigEndian.Uint16(payload[2:4])
+			payload = payload[4:]
+			continue
+		}
+		if etherType == uint16(unix.ETH_P_IP) || etherType == uint16(unix.ETH_P_IPV6) {
+			return etherType, payload, true
+		}
+		return 0, nil, false
+	}
+}
+
+func inferNetworkPayload(data []byte) (uint16, []byte, bool) {
+	if len(data) < 1 {
+		return 0, nil, false
+	}
+	switch data[0] >> 4 {
+	case 4:
+		return uint16(unix.ETH_P_IP), data, true
+	case 6:
+		return uint16(unix.ETH_P_IPV6), data, true
+	default:
+		return 0, nil, false
 	}
 }
 
