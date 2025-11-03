@@ -341,6 +341,14 @@ void run_tunnel(int server, int argc, char *argv[])
 			}
 			print_hexdump(payload, size);
 
+			uint16_t ether_type = ETH_P_IP;
+			if (size > 0) {
+				uint8_t version = ((uint8_t)payload[0]) >> 4;
+				if (version == 6) {
+					ether_type = ETH_P_IPV6;
+				}
+			}
+
 			/* Fill the Ethernet frame header */
 			int have_dest_mac = 0;
 			if (ether_type == ETH_P_IP && size >= 20 && have_iface_addr) {
@@ -356,12 +364,6 @@ void run_tunnel(int server, int argc, char *argv[])
 				memcpy(eth_hdr->dst_addr, broadcast_mac, 6);
 			}
 			memcpy(eth_hdr->src_addr, this_mac, 6);
-			uint16_t ether_type = ETH_P_IP;
-			if (size > 0) {
-				uint8_t version = (uint8_t)payload[0] >> 4;
-				if (version == 6)
-					ether_type = ETH_P_IPV6;
-			}
 			eth_hdr->eth_type = htons(ether_type);
 			socket_address.sll_protocol = htons(ether_type);
 
