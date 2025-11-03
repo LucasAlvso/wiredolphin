@@ -16,12 +16,123 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <netinet/ether.h>
+#include <net/if_arp.h>
 #include <pwd.h>
 #include <pthread.h>
 #include <unistd.h>
 #include "tunnel.h"
 
 #define MTU 1472
+
+static int get_default_gateway(const char *ifName, struct in_addr *gw)
+{
+	FILE *fp = fopen("/proc/net/route", "r");
+	if (!fp)
+		return -1;
+
+	char iface[IFNAMSIZ];
+	unsigned long destination, gateway;
+	int flags;
+	int found = -1;
+
+	char line[256];
+	if (!fgets(line, sizeof(line), fp)) {
+		fclose(fp);
+		return -1;
+	}
+
+	while (fscanf(fp, "%s %lx %lx %X %*d %*d %*d %*lx %*d %*d %*d\n",
+			  iface, &destination, &gateway, &flags) == 4) {
+		if (strcmp(iface, ifName) != 0)
+			continue;
+		if (destination != 0)
+			continue;
+		struct in_addr g;
+		g.s_addr = htonl(gateway);
+		*gw = g;
+		found = 0;
+		break;
+	}
+
+	fclose(fp);
+	return found;
+}
+
+static int get_interface_ipv4(int sock_fd, const char *ifName, struct in_addr *addr, struct in_addr *netmask)
+{
+	struct ifreq ifr;
+	memset(&ifr, 0, sizeof(ifr));
+	strncpy(ifr.ifr_name, ifName, IFNAMSIZ - 1);
+	if (ioctl(sock_fd, SIOCGIFADDR, &ifr) < 0)
+		return -1;
+	*addr = ((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr;
+
+	memset(&ifr, 0, sizeof(ifr));
+	strncpy(ifr.ifr_name, ifName, IFNAMSIZ - 1);
+	if (ioctl(sock_fd, SIOCGIFNETMASK, &ifr) < 0)
+		return -1;
+	*netmask = ((struct sockaddr_in *)&ifr.ifr_netmask)->sin_addr;
+	return 0;
+}
+
+static int send_dummy_udp(const char *ifName, struct in_addr target)
+{
+	int fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (fd < 0)
+		return -1;
+
+	struct sockaddr_in addr;
+	memset(&addr, 0, sizeof(addr));
+	addr.sin_family = AF_INET;
+	addr.sin_addr = target;
+	addr.sin_port = htons(9);
+
+	if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, ifName, strlen(ifName) + 1) < 0) {
+		close(fd);
+		return -1;
+	}
+
+	sendto(fd, "", 0, 0, (struct sockaddr *)&addr, sizeof(addr));
+	close(fd);
+	return 0;
+}
+
+static int lookup_mac(int ioctl_fd, const char *ifName, struct in_addr target, unsigned char mac[6])
+{
+	struct arpreq req;
+	memset(&req, 0, sizeof(req));
+	struct sockaddr_in *pa = (struct sockaddr_in *)&req.arp_pa;
+	pa->sin_family = AF_INET;
+	pa->sin_addr = target;
+	strncpy(req.arp_dev, ifName, IFNAMSIZ - 1);
+
+	if (ioctl(ioctl_fd, SIOCGARP, &req) < 0)
+		return -1;
+
+	memcpy(mac, req.arp_ha.sa_data, 6);
+	return 0;
+}
+
+static int resolve_mac_for_ipv4(int ioctl_fd, const char *ifName, struct in_addr dest, struct in_addr iface_addr, struct in_addr netmask, int have_gateway, struct in_addr gateway, unsigned char mac[6])
+{
+	struct in_addr target = dest;
+	int same_subnet = ((dest.s_addr & netmask.s_addr) == (iface_addr.s_addr & netmask.s_addr));
+	if (!same_subnet) {
+		if (!have_gateway)
+			return -1;
+		target = gateway;
+	}
+
+	if (lookup_mac(ioctl_fd, ifName, target, mac) == 0)
+		return 0;
+
+	send_dummy_udp(ifName, target);
+	if (lookup_mac(ioctl_fd, ifName, target, mac) == 0)
+		return 0;
+
+	return -1;
+}
+
 
 int tun_alloc(char *dev, int flags)
 {
@@ -138,6 +249,7 @@ void run_tunnel(int server, int argc, char *argv[])
 {
 	unsigned char this_mac[6];
 	unsigned char broadcast_mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+	unsigned char resolved_mac[6];
 
 	char buf[ETH_LEN];
 	struct eth_hdr *eth_hdr = (struct eth_hdr *)&buf;
@@ -147,6 +259,12 @@ void run_tunnel(int server, int argc, char *argv[])
 	char ifName[IFNAMSIZ];
 	struct sockaddr_ll socket_address;
 	int sock_fd, tun_fd, size;
+	int ioctl_fd = -1;
+	struct in_addr iface_addr;
+	struct in_addr iface_netmask;
+	struct in_addr gateway_addr;
+	int have_iface_addr = 0;
+	int have_gateway = 0;
 
 	fd_set fs;
 
@@ -166,6 +284,10 @@ void run_tunnel(int server, int argc, char *argv[])
 	/* Open RAW socket */
 	if ((sock_fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) == -1)
 		perror("socket");
+
+	ioctl_fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (ioctl_fd == -1)
+		perror("socket(AF_INET)");
 
 	/* Set interface to promiscuous mode */
 	strncpy(ifopts.ifr_name, ifName, IFNAMSIZ-1);
@@ -189,6 +311,11 @@ void run_tunnel(int server, int argc, char *argv[])
 	if (ioctl(sock_fd, SIOCGIFHWADDR, &if_mac) < 0)
 		perror("SIOCGIFHWADDR");
 	memcpy(this_mac, if_mac.ifr_hwaddr.sa_data, 6);
+
+	if (get_interface_ipv4(ioctl_fd >= 0 ? ioctl_fd : sock_fd, ifName, &iface_addr, &iface_netmask) == 0)
+		have_iface_addr = 1;
+	if (get_default_gateway(ifName, &gateway_addr) == 0)
+		have_gateway = 1;
 
 	if (server)
 		configure_network(server, 0);
@@ -215,7 +342,19 @@ void run_tunnel(int server, int argc, char *argv[])
 			print_hexdump(payload, size);
 
 			/* Fill the Ethernet frame header */
-			memcpy(eth_hdr->dst_addr, broadcast_mac, 6);
+			int have_dest_mac = 0;
+			if (ether_type == ETH_P_IP && size >= 20 && have_iface_addr) {
+				struct in_addr dest_ip;
+				memcpy(&dest_ip, payload + 16, sizeof(dest_ip));
+				int resolver_fd = (ioctl_fd >= 0) ? ioctl_fd : sock_fd;
+				if (resolve_mac_for_ipv4(resolver_fd, ifName, dest_ip, iface_addr, iface_netmask, have_gateway, gateway_addr, resolved_mac) == 0) {
+					memcpy(eth_hdr->dst_addr, resolved_mac, 6);
+					have_dest_mac = 1;
+				}
+			}
+			if (!have_dest_mac) {
+				memcpy(eth_hdr->dst_addr, broadcast_mac, 6);
+			}
 			memcpy(eth_hdr->src_addr, this_mac, 6);
 			uint16_t ether_type = ETH_P_IP;
 			if (size > 0) {
