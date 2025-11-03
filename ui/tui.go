@@ -154,6 +154,7 @@ func (t *TUI) Render() {
 				fmt.Printf("  Remote: %-45s\n", remote.ip)
 				fmt.Printf("    Ports:      %s\n", portsStr)
 				fmt.Printf("    Protocols:  %s\n", protocolsStr)
+				fmt.Printf("    Connections: %-6d\n", remote.host.Connections)
 				fmt.Printf("    Packets:    Sent: %-6d  Received: %-6d  Total: %-6d\n",
 					remote.host.PacketsSent, remote.host.PacketsReceived,
 					remote.host.PacketsSent+remote.host.PacketsReceived)
