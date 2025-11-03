@@ -34,6 +34,7 @@ type RemoteHost struct {
 	PacketsReceived int
 	BytesSent       int64
 	BytesReceived   int64
+	flowKeys        map[string]struct{}
 }
 
 // ClientStats tracks statistics for a single client
@@ -150,8 +151,11 @@ func (gs *GlobalStats) updateClientStats(clientIP, remoteIP string, port uint16,
 			IP:        remoteIP,
 			Ports:     make(map[uint16]bool),
 			Protocols: make(map[string]bool),
+			flowKeys:  make(map[string]struct{}),
 		}
 		client.RemoteHosts[remoteIP] = remote
+	} else if remote.flowKeys == nil {
+		remote.flowKeys = make(map[string]struct{})
 	}
 
 	// Update remote host stats
@@ -161,7 +165,15 @@ func (gs *GlobalStats) updateClientStats(clientIP, remoteIP string, port uint16,
 	if protocol != "" {
 		remote.Protocols[protocol] = true
 	}
-	remote.Connections++
+	keyProto := protocol
+	if keyProto == "" {
+		keyProto = "UNKNOWN"
+	}
+	key := fmt.Sprintf("%s:%d", keyProto, port)
+	if _, seen := remote.flowKeys[key]; !seen {
+		remote.flowKeys[key] = struct{}{}
+		remote.Connections++
+	}
 
 	if isSent {
 		remote.PacketsSent++

@@ -118,7 +118,8 @@ func (c *Capturer) processPacket(data []byte, ll *unix.SockaddrLinklayer) {
 	case uint16(unix.ETH_P_IPV6):
 		c.parseIPv6(payload, pkt)
 	default:
-		return
+		pkt.NetworkProto = "Other"
+		pkt.ProtocolNum = 0
 	}
 
 	if pkt.NetworkProto != "" {
