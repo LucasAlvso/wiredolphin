@@ -8,6 +8,8 @@ set -euo pipefail
 : "${DNS_NAME:=}"
 : "${DNS_SERVER:=}"
 : "${NTP_SERVER:=}"
+: "${GEN_DHCP:=false}"
+: "${DHCP_TARGET:=172.31.66.1}"
 
 echo "[gen] Starting traffic generation..."
 
@@ -63,15 +65,37 @@ if [[ -n "${NTP_SERVER}" ]]; then
   } | nc -u -w1 "${NTP_SERVER}" 123 >/dev/null 2>&1 || true
 fi
 
-if [[ -n "${GEN_DHCP}" ]] && [[ "${GEN_DHCP}" == "true" ]]; then
-  echo "[gen] DHCP DISCOVER (broadcast)"
-  # Construct a minimal DHCP-like packet with magic cookie at offset 236 so analyzer recognizes it.
-  # Send from UDP source port 68 to destination port 67 to broadcast address.
+if [[ "${GEN_DHCP}" == "true" ]]; then
+  echo "[gen] DHCP DISCOVER to ${DHCP_TARGET}:67"
+  tmpfile=$(mktemp)
+  mac_bytes=$(mktemp)
+  head -c 6 /dev/urandom >"${mac_bytes}"
+  # Build BOOTP header with random transaction ID and client MAC
   {
-    dd if=/dev/zero bs=1 count=236 status=none
-    # DHCP magic cookie + minimal DHCP Discover option (DHCP Message Type = 1)
-    printf '\x63\x82\x53\x63\x35\x01\x01\xff'
-  } | nc -u -w1 -p 68 255.255.255.255 67 >/dev/null 2>&1 || true
+    printf '\x01\x01\x06\x00'          # op=BOOTREQUEST, htype=Ethernet, hlen=6, hops=0
+    dd if=/dev/urandom bs=1 count=4 status=none   # xid
+    printf '\x00\x00\x80\x00'          # secs=0, flags broadcast
+    dd if=/dev/zero bs=1 count=16 status=none     # ciaddr, yiaddr, siaddr, giaddr
+    cat "${mac_bytes}"                      # chaddr (MAC)
+    dd if=/dev/zero bs=1 count=10 status=none     # chaddr padding
+    dd if=/dev/zero bs=1 count=192 status=none    # sname + file
+    printf '\x63\x82\x53\x63'          # magic cookie
+    printf '\x35\x01\x01'               # option 53: DHCP Discover
+    printf '\x3d\x07\x01'               # option 61: client identifier (type 1 + MAC)
+    cat "${mac_bytes}"
+    printf '\x37\x03\x01\x03\x06'     # option 55: parameter request list (Subnet, Router, DNS)
+    printf '\xff'                         # end
+  } >"${tmpfile}"
+
+  if command -v nc >/dev/null 2>&1; then
+    nc -u -w1 -p 68 "${DHCP_TARGET}" 67 <"${tmpfile}" >/dev/null 2>&1 || true
+  elif command -v socat >/dev/null 2>&1; then
+    socat -u FILE:"${tmpfile}" UDP-DATAGRAM:"${DHCP_TARGET}":67,sourceport=68 >/dev/null 2>&1 || true
+  else
+    # Fallback using bash /dev/udp pseudo-device
+    cat "${tmpfile}" >"/dev/udp/${DHCP_TARGET}/67" 2>/dev/null || true
+  fi
+  rm -f "${tmpfile}" "${mac_bytes}"
 fi
 
 echo "[gen] Traffic generation complete."
