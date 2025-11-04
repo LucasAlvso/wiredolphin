@@ -240,15 +240,6 @@ void configure_network(int server, char *client_script)
 	}
 }
 
-void print_hexdump(char *str, int len)
-{
-	for (int i = 0; i < len; i++) {
-		if (i % 16 == 0 && i != 0) printf("\n");
-		printf("%02x ", (unsigned char)str[i]);
-	}
-	if (len > 0) printf("\n");
-}
-
 void run_tunnel(int server, int argc, char *argv[])
 {
 	unsigned char this_mac[6];
@@ -343,14 +334,12 @@ void run_tunnel(int server, int argc, char *argv[])
 			continue;
 
 		if (FD_ISSET(tun_fd, &fs)) {
-			printf("[DEBUG] Read tun device\n");
 			memset(&buf, 0, sizeof(buf));
 			
 			/* Fill the payload with tunnel data */
 			size = tun_read(tun_fd, payload, MTU);
 			if (size == -1)
 				continue;
-			print_hexdump(payload, size);
 
 			uint16_t ether_type = ETH_P_IP;
 			if (size > 0) {
@@ -383,7 +372,6 @@ void run_tunnel(int server, int argc, char *argv[])
 			if (sendto(sock_fd, buf, size + sizeof(struct eth_hdr), 0, (struct sockaddr *)&socket_address, sizeof(struct sockaddr_ll)) < 0)
 				printf("Send failed\n");
 
-			printf("[DEBUG] Sent packet\n");
 		}
 
 		if (FD_ISSET(sock_fd, &fs)) {
