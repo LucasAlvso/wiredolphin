@@ -146,11 +146,12 @@ func getDHCPInfo(payload []byte) string {
 	htype := payload[1]
 
 	var opStr string
-	if op == 1 {
+	switch op {
+	case 1:
 		opStr = "Request"
-	} else if op == 2 {
+	case 2:
 		opStr = "Reply"
-	} else {
+	default:
 		opStr = fmt.Sprintf("Op:%d", op)
 	}
 
