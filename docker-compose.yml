@@ -23,20 +23,14 @@ services:
     volumes:
       - ./logs:/logs
 
-    # Environment configuration
     environment:
-      # Analyzer interface (created by the tunnel)
       - IFACE=tun0
-      # Physical/underlay interface (inside the container) used by the tunnel server
       - TUN_UNDERLAY_IF=eth0
-      # Whether to start the tunnel process; set to false if you already run tunnel externally
       - TUN_START=true
-      # Seconds to wait for IFACE to appear
       - TUN_WAIT_TIMEOUT=20
-      # Tunnel address to assign if not configured by the tunnel binary
       - TUN_ADDR_CIDR=172.31.66.1/24
-      # Enable NAT on the underlay interface
       - TUN_ENABLE_NAT=true
+      - TUN_GEN_TRAFFIC=true
 
   client1:
     image: wiredolphin:latest
@@ -55,8 +49,8 @@ services:
       - IFACE=tun0
       - CLIENT_UNDERLAY_IF=eth0
       - CLIENT_SCRIPT=/client-config/client1.sh
-      # Generate some traffic through the tunnel
-      - GEN_TRAFFIC=true
+      - GEN_TRAFFIC=${TUN_GEN_TRAFFIC:-true}
+      - GEN_DHCP=true
       - PING_TARGET=1.1.1.1
       - PING_COUNT=3
       - HTTP_URL=http://172.31.66.1/
@@ -83,7 +77,8 @@ services:
       - IFACE=tun0
       - CLIENT_UNDERLAY_IF=eth0
       - CLIENT_SCRIPT=/client-config/client2.sh
-      - GEN_TRAFFIC=true
+      - GEN_TRAFFIC=${TUN_GEN_TRAFFIC:-true}
+      - GEN_DHCP=true
       - PING_TARGET=8.8.8.8
       - PING_COUNT=3
       - HTTP_URL=http://172.31.66.1/
