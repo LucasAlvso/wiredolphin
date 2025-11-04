@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"wiredolphin/stats"
@@ -21,6 +22,12 @@ type TUI struct {
 	filter     string
 	rotateSecs int
 	lastRotate time.Time
+	// interactive state
+	mu             sync.Mutex
+	selectedClient int
+	remotePage     map[string]int
+	inputStop      chan struct{}
+	remotePageSize int
 }
 
 // NewTUI creates a new TUI
@@ -29,6 +36,7 @@ func NewTUI(globalStats *stats.GlobalStats, iface string) *TUI {
 	pageSize := 0
 	rotateSecs := 5
 	filter := ""
+	remotePageSize := 5
 	if v := os.Getenv("TUI_PAGE_SIZE"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			pageSize = n
@@ -40,20 +48,28 @@ func NewTUI(globalStats *stats.GlobalStats, iface string) *TUI {
 		}
 	}
 	filter = os.Getenv("TUI_CLIENT_FILTER")
+	if v := os.Getenv("TUI_REMOTE_PAGE_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			remotePageSize = n
+		}
+	}
 
 	return &TUI{
-		stats:      globalStats,
-		iface:      iface,
-		pageSize:   pageSize,
-		filter:     filter,
-		rotateSecs: rotateSecs,
-		lastRotate: time.Now(),
+		stats:          globalStats,
+		iface:          iface,
+		pageSize:       pageSize,
+		filter:         filter,
+		rotateSecs:     rotateSecs,
+		lastRotate:     time.Now(),
+		remotePage:     make(map[string]int),
+		inputStop:      make(chan struct{}),
+		remotePageSize: remotePageSize,
 	}
 }
 
 // Start starts the TUI update loop
 func (t *TUI) Start(done <-chan struct{}) {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -172,7 +188,31 @@ func (t *TUI) Render() {
 				return remotes[i].totalTraffic > remotes[j].totalTraffic
 			})
 
-			for _, remote := range remotes {
+			// Remote pagination per client
+			rps := t.remotePageSize
+			if rps <= 0 {
+				rps = 5
+			}
+			rp := 0
+			if v, ok := t.remotePage[client.IP]; ok {
+				rp = v
+			}
+			totalRemotes := len(remotes)
+			rpages := (totalRemotes + rps - 1) / rps
+			rstart := rp * rps
+			rend := rstart + rps
+			if rstart < 0 {
+				rstart = 0
+			}
+			if rend > totalRemotes {
+				rend = totalRemotes
+			}
+
+			if totalRemotes > rps {
+				fmt.Printf("  Showing remotes %d-%d of %d (page %d/%d)\n", rstart+1, rend, totalRemotes, rp+1, rpages)
+			}
+
+			for _, remote := range remotes[rstart:rend] {
 
 				// Get ports list
 				var ports []uint16
