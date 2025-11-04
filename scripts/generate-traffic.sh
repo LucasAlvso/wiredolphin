@@ -56,11 +56,22 @@ fi
 
 if [[ -n "${NTP_SERVER}" ]]; then
   echo "[gen] NTP client packet to ${NTP_SERVER}:123"
-  # Minimal SNTP client request: first byte 0x1B (LI=0, VN=3, Mode=3), rest zero
+  # Minimal SNTP client request: first byte 0x1B (LI=0, VN=3, Mode=3), rest zero (48 bytes total)
   {
-    printf '\033'
+    printf '\x1b'
     dd if=/dev/zero bs=1 count=47 status=none
   } | nc -u -w1 "${NTP_SERVER}" 123 >/dev/null 2>&1 || true
+fi
+
+if [[ -n "${GEN_DHCP}" ]] && [[ "${GEN_DHCP}" == "true" ]]; then
+  echo "[gen] DHCP DISCOVER (broadcast)"
+  # Construct a minimal DHCP-like packet with magic cookie at offset 236 so analyzer recognizes it.
+  # Send from UDP source port 68 to destination port 67 to broadcast address.
+  {
+    dd if=/dev/zero bs=1 count=236 status=none
+    # DHCP magic cookie + minimal DHCP Discover option (DHCP Message Type = 1)
+    printf '\x63\x82\x53\x63\x35\x01\x01\xff'
+  } | nc -u -w1 -p 68 255.255.255.255 67 >/dev/null 2>&1 || true
 fi
 
 echo "[gen] Traffic generation complete."
