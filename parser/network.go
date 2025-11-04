@@ -155,7 +155,19 @@ func GetProtocolName(proto uint8) string {
 // StripIPv6Extensions walks IPv6 extension headers and returns the upper-layer protocol and payload.
 // The boolean indicates whether the upper-layer payload is present (fragments without the first
 // fragment return false but no error). Unsupported extensions such as ESP also return false.
-func StripIPv6Extensions(nextHeader uint8, payload []byte) (uint8, []byte, bool, error) {
+// IPv6Fragment describes the fragment header and payload for a fragment.
+type IPv6Fragment struct {
+	NextHeader uint8
+	Offset     uint16
+	More       bool
+	ID         uint32
+	Data       []byte // payload after the fragment header
+}
+
+// StripIPv6Extensions walks IPv6 extension headers and returns the upper-layer protocol and payload.
+// The boolean indicates whether the upper-layer payload is present. If a fragment header is found
+// this function returns the fragment metadata (not assembled) so the caller may reassemble.
+func StripIPv6Extensions(nextHeader uint8, payload []byte) (uint8, []byte, bool, *IPv6Fragment, error) {
 	upperProto := nextHeader
 	remaining := payload
 
@@ -163,40 +175,46 @@ func StripIPv6Extensions(nextHeader uint8, payload []byte) (uint8, []byte, bool,
 		switch upperProto {
 		case 0, 43, 60: // Hop-by-Hop, Routing, Destination Options
 			if len(remaining) < 2 {
-				return upperProto, nil, false, fmt.Errorf("ipv6 extension header truncated")
+				return upperProto, nil, false, nil, fmt.Errorf("ipv6 extension header truncated")
 			}
 			extLen := int(remaining[1]+1) * 8
 			if len(remaining) < extLen {
-				return upperProto, nil, false, fmt.Errorf("ipv6 extension length %d exceeds payload %d", extLen, len(remaining))
+				return upperProto, nil, false, nil, fmt.Errorf("ipv6 extension length %d exceeds payload %d", extLen, len(remaining))
 			}
 			upperProto = remaining[0]
 			remaining = remaining[extLen:]
 		case 44: // Fragment
 			if len(remaining) < 8 {
-				return upperProto, nil, false, fmt.Errorf("ipv6 fragment header truncated")
+				return upperProto, nil, false, nil, fmt.Errorf("ipv6 fragment header truncated")
 			}
 			next := remaining[0]
 			fragInfo := binary.BigEndian.Uint16(remaining[2:4])
 			offset := (fragInfo >> 3) & 0x1FFF
-			remaining = remaining[8:]
-			if offset != 0 {
-				return next, nil, false, nil
+			m := (fragInfo & 0x1) != 0
+			id := binary.BigEndian.Uint32(remaining[4:8])
+			data := remaining[8:]
+			frag := &IPv6Fragment{
+				NextHeader: next,
+				Offset:     offset,
+				More:       m,
+				ID:         id,
+				Data:       data,
 			}
-			upperProto = next
+			return next, nil, false, frag, nil
 		case 51: // Authentication Header
 			if len(remaining) < 2 {
-				return upperProto, nil, false, fmt.Errorf("ipv6 AH truncated")
+				return upperProto, nil, false, nil, fmt.Errorf("ipv6 AH truncated")
 			}
 			extLen := int(remaining[1]+2) * 4
 			if len(remaining) < extLen {
-				return upperProto, nil, false, fmt.Errorf("ipv6 AH length %d exceeds payload %d", extLen, len(remaining))
+				return upperProto, nil, false, nil, fmt.Errorf("ipv6 AH length %d exceeds payload %d", extLen, len(remaining))
 			}
 			upperProto = remaining[0]
 			remaining = remaining[extLen:]
 		case 50: // ESP – cannot parse further without SA
-			return upperProto, nil, false, nil
+			return upperProto, nil, false, nil, nil
 		default:
-			return upperProto, remaining, true, nil
+			return upperProto, remaining, true, nil, nil
 		}
 	}
 }

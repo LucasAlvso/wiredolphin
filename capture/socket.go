@@ -22,6 +22,7 @@ type Capturer struct {
 	ifaceName string
 	stats     *stats.GlobalStats
 	logger    *logger.CSVLogger
+	reasm     *ReassemblyTable
 }
 
 // NewCapturer creates a new packet capturer
@@ -54,6 +55,7 @@ func NewCapturer(ifaceName string, globalStats *stats.GlobalStats, csvLogger *lo
 		ifaceName: ifaceName,
 		stats:     globalStats,
 		logger:    csvLogger,
+		reasm:     NewReassemblyTable(30 * time.Second),
 	}, nil
 }
 
@@ -222,9 +224,25 @@ func (c *Capturer) parseIPv6(data []byte, pkt *stats.PacketInfo) {
 	pkt.NetworkProto = "IPv6"
 	pkt.SrcIP = ipHeader.SrcIP.String()
 	pkt.DstIP = ipHeader.DstIP.String()
-	upperProto, upperPayload, hasUpper, err := parser.StripIPv6Extensions(ipHeader.NextHeader, payload)
+	upperProto, upperPayload, hasUpper, frag, err := parser.StripIPv6Extensions(ipHeader.NextHeader, payload)
 	if err != nil {
 		return
+	}
+
+	// If this is a fragment, attempt reassembly
+	if frag != nil {
+		assembled, proto, ok, err := c.reasm.AddFragment(pkt.SrcIP, pkt.DstIP, frag)
+		if err != nil {
+			return
+		}
+		if !ok {
+			// not yet reassembled
+			return
+		}
+		// use assembled payload
+		upperProto = proto
+		upperPayload = assembled
+		hasUpper = true
 	}
 
 	pkt.ProtocolNum = upperProto

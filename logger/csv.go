@@ -188,6 +188,12 @@ func (l *CSVLogger) StartPeriodicFlush(interval time.Duration, done <-chan struc
 func (l *CSVLogger) writeRecord(writer *csv.Writer, label string, record []string) {
 	if err := writer.Write(record); err != nil {
 		fmt.Fprintf(os.Stderr, "wiredolphin: failed to write %s: %v\n", label, err)
+		return
+	}
+	// Ensure record is flushed to underlying file so 'cat' can see it immediately
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		fmt.Fprintf(os.Stderr, "wiredolphin: flush error for %s after write: %v\n", label, err)
 	}
 }
 

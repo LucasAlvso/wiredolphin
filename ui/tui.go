@@ -3,9 +3,8 @@ package ui
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,13 +15,39 @@ import (
 type TUI struct {
 	stats *stats.GlobalStats
 	iface string
+	// paging/filtering
+	clientPage int
+	pageSize   int
+	filter     string
+	rotateSecs int
+	lastRotate time.Time
 }
 
 // NewTUI creates a new TUI
 func NewTUI(globalStats *stats.GlobalStats, iface string) *TUI {
+	// Read optional environment configuration
+	pageSize := 0
+	rotateSecs := 5
+	filter := ""
+	if v := os.Getenv("TUI_PAGE_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			pageSize = n
+		}
+	}
+	if v := os.Getenv("TUI_ROTATE_SECS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			rotateSecs = n
+		}
+	}
+	filter = os.Getenv("TUI_CLIENT_FILTER")
+
 	return &TUI{
-		stats: globalStats,
-		iface: iface,
+		stats:      globalStats,
+		iface:      iface,
+		pageSize:   pageSize,
+		filter:     filter,
+		rotateSecs: rotateSecs,
+		lastRotate: time.Now(),
 	}
 }
 
@@ -36,6 +61,13 @@ func (t *TUI) Start(done <-chan struct{}) {
 		case <-done:
 			return
 		case <-ticker.C:
+			// rotate pages if configured
+			if t.pageSize > 0 {
+				if time.Since(t.lastRotate) >= time.Duration(t.rotateSecs)*time.Second {
+					t.clientPage++
+					t.lastRotate = time.Now()
+				}
+			}
 			t.Render()
 		}
 	}
@@ -88,14 +120,35 @@ func (t *TUI) Render() {
 		fmt.Println("PER-CLIENT STATISTICS")
 		fmt.Println(strings.Repeat("=", 80))
 
-		// Sort clients by IP
+		// Sort clients by IP and apply optional filter
 		var clientIPs []string
 		for ip := range snapshot.ClientStats {
+			if t.filter != "" {
+				if !strings.Contains(ip, t.filter) {
+					continue
+				}
+			}
 			clientIPs = append(clientIPs, ip)
 		}
 		sort.Strings(clientIPs)
 
-		for _, clientIP := range clientIPs {
+		// Paging for clients (optional)
+		totalClients := len(clientIPs)
+		startIdx := 0
+		endIdx := totalClients
+		if t.pageSize > 0 && totalClients > 0 {
+			pages := (totalClients + t.pageSize - 1) / t.pageSize
+			page := t.clientPage % pages
+			startIdx = page * t.pageSize
+			endIdx = startIdx + t.pageSize
+			if endIdx > totalClients {
+				endIdx = totalClients
+			}
+			// Show page indicator
+			fmt.Printf("Showing clients %d-%d of %d (page %d/%d)\n", startIdx+1, endIdx, totalClients, page+1, pages)
+		}
+
+		for _, clientIP := range clientIPs[startIdx:endIdx] {
 			client := snapshot.ClientStats[clientIP]
 
 			fmt.Printf("\nClient: %s\n", client.IP)
@@ -161,19 +214,10 @@ func (t *TUI) Render() {
 
 // clearScreen clears the terminal screen
 func clearScreen() {
-	switch runtime.GOOS {
-	case "linux", "darwin":
-		cmd := exec.Command("clear")
-		cmd.Stdout = os.Stdout
-		cmd.Run()
-	case "windows":
-		cmd := exec.Command("cmd", "/c", "cls")
-		cmd.Stdout = os.Stdout
-		cmd.Run()
-	default:
-		// Fallback: print newlines
-		fmt.Print("\033[H\033[2J")
-	}
+	// Use ANSI escape sequences to refresh the screen. This works in most terminals
+	// and is preserved in container logs as escape sequences.
+	// Move cursor to top-left and clear screen.
+	fmt.Print("\033[H\033[2J")
 }
 
 // centerText centers text within a given width
