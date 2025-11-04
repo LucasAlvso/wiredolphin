@@ -198,6 +198,7 @@ func (c *Capturer) parseIPv4(data []byte, pkt *stats.PacketInfo) {
 		return
 	}
 
+	pkt.L3Family = "IPv4"
 	pkt.NetworkProto = "IPv4"
 	pkt.SrcIP = ipHeader.SrcIP.String()
 	pkt.DstIP = ipHeader.DstIP.String()
@@ -221,6 +222,7 @@ func (c *Capturer) parseIPv6(data []byte, pkt *stats.PacketInfo) {
 		return
 	}
 
+	pkt.L3Family = "IPv6"
 	pkt.NetworkProto = "IPv6"
 	pkt.SrcIP = ipHeader.SrcIP.String()
 	pkt.DstIP = ipHeader.DstIP.String()

@@ -7,6 +7,7 @@ set -euo pipefail
 : "${TUN_WAIT_TIMEOUT:=20}"
 # Optional: traffic generator controls
 : "${GEN_TRAFFIC:=false}"
+: "${GEN_DHCP:=false}"
 : "${PING_TARGET:=}"
 : "${PING_COUNT:=3}"
 : "${HTTP_URL:=}"
@@ -56,7 +57,7 @@ if [[ "${GEN_TRAFFIC}" == "true" ]]; then
   echo "[client] Generating sample traffic"
   PING_TARGET="${PING_TARGET}" PING_COUNT="${PING_COUNT}" \
   HTTP_URL="${HTTP_URL}" DNS_NAME="${DNS_NAME}" DNS_SERVER="${DNS_SERVER}" \
-  NTP_SERVER="${NTP_SERVER}" /generate-traffic.sh || true
+  NTP_SERVER="${NTP_SERVER}" GEN_DHCP="${GEN_DHCP}" /generate-traffic.sh || true
 fi
 
 echo "[client] Client is running. Sleeping indefinitely."

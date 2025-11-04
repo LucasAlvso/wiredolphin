@@ -16,6 +16,7 @@ type PacketInfo struct {
 	SrcPort        uint16
 	DstPort        uint16
 	Size           int
+	L3Family       string
 	NetworkProto   string
 	TransportProto string
 	AppProto       string
@@ -89,12 +90,15 @@ func (gs *GlobalStats) UpdateStats(pkt *PacketInfo) {
 	gs.TotalBytes += int64(pkt.Size)
 
 	// Update protocol counters
-	switch pkt.NetworkProto {
+	switch pkt.L3Family {
 	case "IPv4":
 		gs.IPv4Count++
 	case "IPv6":
 		gs.IPv6Count++
-	case "ICMP", "ICMPv6":
+	}
+
+	if pkt.TransportProto == "ICMP" || pkt.TransportProto == "ICMPv6" ||
+		pkt.NetworkProto == "ICMP" || pkt.NetworkProto == "ICMPv6" {
 		gs.ICMPCount++
 	}
 
