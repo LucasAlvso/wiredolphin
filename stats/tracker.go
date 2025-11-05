@@ -35,7 +35,13 @@ type RemoteHost struct {
 	PacketsReceived int
 	BytesSent       int64
 	BytesReceived   int64
-	flowKeys        map[string]struct{}
+	flowKeys        map[flowKey]struct{}
+}
+
+type flowKey struct {
+	proto      string
+	localPort  uint16
+	remotePort uint16
 }
 
 // ClientStats tracks statistics for a single client
@@ -62,7 +68,7 @@ type GlobalStats struct {
 	ClientStats  map[string]*ClientStats
 	mu           sync.RWMutex
 	StartTime    time.Time
-	clientNet    *net.IPNet
+	clientNets   []*net.IPNet
 }
 
 // NewGlobalStats creates a new GlobalStats instance
@@ -73,11 +79,22 @@ func NewGlobalStats() *GlobalStats {
 	}
 }
 
-// SetClientFilter sets a subnet to consider as "clients" (e.g., tun0 network)
-func (gs *GlobalStats) SetClientFilter(clientCIDR *net.IPNet) {
+// SetClientFilters sets one or more subnets to consider as "clients" (e.g., tun0 network)
+func (gs *GlobalStats) SetClientFilters(cidrs ...*net.IPNet) {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
-	gs.clientNet = clientCIDR
+
+	gs.clientNets = gs.clientNets[:0]
+	for _, cidr := range cidrs {
+		if cidr == nil || cidr.IP == nil {
+			continue
+		}
+		ip := make(net.IP, len(cidr.IP))
+		copy(ip, cidr.IP)
+		mask := make(net.IPMask, len(cidr.Mask))
+		copy(mask, cidr.Mask)
+		gs.clientNets = append(gs.clientNets, &net.IPNet{IP: ip, Mask: mask})
+	}
 }
 
 // UpdateStats updates global and per-client statistics
@@ -85,11 +102,9 @@ func (gs *GlobalStats) UpdateStats(pkt *PacketInfo) {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
 
-	// Update global counters
 	gs.TotalPackets++
 	gs.TotalBytes += int64(pkt.Size)
 
-	// Update protocol counters
 	switch pkt.L3Family {
 	case "IPv4":
 		gs.IPv4Count++
@@ -124,21 +139,23 @@ func (gs *GlobalStats) UpdateStats(pkt *PacketInfo) {
 		gs.OtherCount++
 	}
 
-	// Update per-client statistics (restrict to configured client subnet if set)
+	proto := pkt.TransportProto
+	if proto == "" {
+		proto = pkt.NetworkProto
+	}
 	if pkt.SrcIP != "" {
 		if gs.isClientIP(pkt.SrcIP) {
-			gs.updateClientStats(pkt.SrcIP, pkt.DstIP, pkt.DstPort, pkt.TransportProto, pkt.Size, true)
+			gs.updateClientStats(pkt.SrcIP, pkt.DstIP, pkt.SrcPort, pkt.DstPort, proto, pkt.Size, true)
 		}
 	}
 	if pkt.DstIP != "" && pkt.SrcIP != pkt.DstIP {
 		if gs.isClientIP(pkt.DstIP) {
-			gs.updateClientStats(pkt.DstIP, pkt.SrcIP, pkt.SrcPort, pkt.TransportProto, pkt.Size, false)
+			gs.updateClientStats(pkt.DstIP, pkt.SrcIP, pkt.DstPort, pkt.SrcPort, proto, pkt.Size, false)
 		}
 	}
 }
 
-func (gs *GlobalStats) updateClientStats(clientIP, remoteIP string, port uint16, protocol string, size int, isSent bool) {
-	// Get or create client stats
+func (gs *GlobalStats) updateClientStats(clientIP, remoteIP string, localPort, remotePort uint16, protocol string, size int, isSent bool) {
 	client, exists := gs.ClientStats[clientIP]
 	if !exists {
 		client = &ClientStats{
@@ -148,34 +165,34 @@ func (gs *GlobalStats) updateClientStats(clientIP, remoteIP string, port uint16,
 		gs.ClientStats[clientIP] = client
 	}
 
-	// Get or create remote host stats
 	remote, exists := client.RemoteHosts[remoteIP]
 	if !exists {
 		remote = &RemoteHost{
 			IP:        remoteIP,
 			Ports:     make(map[uint16]bool),
 			Protocols: make(map[string]bool),
-			flowKeys:  make(map[string]struct{}),
+			flowKeys:  make(map[flowKey]struct{}),
 		}
 		client.RemoteHosts[remoteIP] = remote
 	} else if remote.flowKeys == nil {
-		remote.flowKeys = make(map[string]struct{})
+		remote.flowKeys = make(map[flowKey]struct{})
 	}
 
-	// Update remote host stats
-	if port > 0 {
-		remote.Ports[port] = true
-	}
-	if protocol != "" {
-		remote.Protocols[protocol] = true
+	if remotePort > 0 {
+		remote.Ports[remotePort] = true
 	}
 	keyProto := protocol
 	if keyProto == "" {
 		keyProto = "UNKNOWN"
 	}
-	key := fmt.Sprintf("%s:%d", keyProto, port)
-	if _, seen := remote.flowKeys[key]; !seen {
-		remote.flowKeys[key] = struct{}{}
+	remote.Protocols[keyProto] = true
+	flow := flowKey{
+		proto:      keyProto,
+		localPort:  localPort,
+		remotePort: remotePort,
+	}
+	if _, seen := remote.flowKeys[flow]; !seen {
+		remote.flowKeys[flow] = struct{}{}
 		remote.Connections++
 	}
 
@@ -188,15 +205,21 @@ func (gs *GlobalStats) updateClientStats(clientIP, remoteIP string, port uint16,
 	}
 }
 
+// isClientIP checks whether the given IP belongs to a configured client network
 func (gs *GlobalStats) isClientIP(ipStr string) bool {
-	if gs.clientNet == nil {
+	if len(gs.clientNets) == 0 {
 		return true
 	}
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
 		return false
 	}
-	return gs.clientNet.Contains(ip)
+	for _, cidr := range gs.clientNets {
+		if cidr.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // GetSnapshot returns a thread-safe copy of current statistics
@@ -222,7 +245,6 @@ func (gs *GlobalStats) GetSnapshot() *GlobalStats {
 		StartTime:    gs.StartTime,
 	}
 
-	// Deep copy client stats
 	for clientIP, client := range gs.ClientStats {
 		clientCopy := &ClientStats{
 			IP:          client.IP,

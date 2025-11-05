@@ -26,6 +26,7 @@ type TUI struct {
 	mu             sync.Mutex
 	selectedClient int
 	remotePage     map[string]int
+	remoteLast     map[string]time.Time
 	inputStop      chan struct{}
 	remotePageSize int
 }
@@ -62,6 +63,7 @@ func NewTUI(globalStats *stats.GlobalStats, iface string) *TUI {
 		rotateSecs:     rotateSecs,
 		lastRotate:     time.Now(),
 		remotePage:     make(map[string]int),
+		remoteLast:     make(map[string]time.Time),
 		inputStop:      make(chan struct{}),
 		remotePageSize: remotePageSize,
 	}
@@ -164,6 +166,7 @@ func (t *TUI) Render() {
 			fmt.Printf("Showing clients %d-%d of %d (page %d/%d)\n", startIdx+1, endIdx, totalClients, page+1, pages)
 		}
 
+		now := time.Now()
 		for _, clientIP := range clientIPs[startIdx:endIdx] {
 			client := snapshot.ClientStats[clientIP]
 
@@ -188,22 +191,44 @@ func (t *TUI) Render() {
 				return remotes[i].totalTraffic > remotes[j].totalTraffic
 			})
 
-			// Remote pagination per client
-			rps := t.remotePageSize
-			if rps <= 0 {
-				rps = 5
-			}
-			rp := 0
-			if v, ok := t.remotePage[client.IP]; ok {
-				rp = v
-			}
 			totalRemotes := len(remotes)
+			if totalRemotes == 0 {
+				fmt.Println("  No remote hosts observed yet.")
+				continue
+			}
+
+			rps := t.remotePageSize
+			if rps <= 0 || rps >= totalRemotes {
+				rps = totalRemotes
+			}
+			if rps == 0 {
+				rps = 1
+			}
+
 			rpages := (totalRemotes + rps - 1) / rps
+			rp := t.remotePage[client.IP]
+			if rp >= rpages {
+				rp = 0
+			}
+
+			if t.remotePageSize > 0 && totalRemotes > t.remotePageSize {
+				last := t.remoteLast[client.IP]
+				if last.IsZero() {
+					t.remoteLast[client.IP] = now
+				} else if now.Sub(last) >= time.Duration(t.rotateSecs)*time.Second {
+					rp = (rp + 1) % rpages
+					t.remotePage[client.IP] = rp
+					t.remoteLast[client.IP] = now
+				}
+			} else {
+				rp = 0
+				t.remotePage[client.IP] = 0
+				t.remoteLast[client.IP] = now
+			}
+
+			t.remotePage[client.IP] = rp
 			rstart := rp * rps
 			rend := rstart + rps
-			if rstart < 0 {
-				rstart = 0
-			}
 			if rend > totalRemotes {
 				rend = totalRemotes
 			}

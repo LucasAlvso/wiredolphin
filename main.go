@@ -38,14 +38,17 @@ func main() {
 	// Initialize components
 	globalStats := stats.NewGlobalStats()
 
-	// Attempt to determine the client subnet from the monitored interface (first IPv4 CIDR)
+	// Attempt to determine client subnets from the monitored interface (IPv4 and IPv6)
 	if iface, err := net.InterfaceByName(ifaceName); err == nil {
 		if addrs, err := iface.Addrs(); err == nil {
+			var cidrs []*net.IPNet
 			for _, a := range addrs {
-				if ipNet, ok := a.(*net.IPNet); ok && ipNet.IP.To4() != nil {
-					globalStats.SetClientFilter(ipNet)
-					break
+				if ipNet, ok := a.(*net.IPNet); ok && ipNet.IP != nil {
+					cidrs = append(cidrs, ipNet)
 				}
+			}
+			if len(cidrs) > 0 {
+				globalStats.SetClientFilters(cidrs...)
 			}
 		}
 	}

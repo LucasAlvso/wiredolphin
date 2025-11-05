@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/unix"
 
@@ -235,16 +236,22 @@ func (c *Capturer) parseIPv6(data []byte, pkt *stats.PacketInfo) {
 	if frag != nil {
 		assembled, proto, ok, err := c.reasm.AddFragment(pkt.SrcIP, pkt.DstIP, frag)
 		if err != nil {
+			pkt.NetworkProto = ""
+			pkt.L3Family = ""
 			return
 		}
 		if !ok {
-			// not yet reassembled
+			// not yet reassembled; suppress logging until complete
+			pkt.NetworkProto = ""
+			pkt.L3Family = ""
 			return
 		}
 		// use assembled payload
 		upperProto = proto
 		upperPayload = assembled
 		hasUpper = true
+		// best-effort size using IPv6 header + reassembled payload
+		pkt.Size = len(assembled) + 40
 	}
 
 	pkt.ProtocolNum = upperProto
@@ -318,7 +325,16 @@ func (c *Capturer) Close() error {
 	return unix.Close(c.fd)
 }
 
+// hostIsBigEndian reports whether the current CPU uses big-endian byte order.
+var hostIsBigEndian = func() bool {
+	var v uint16 = 0x0102
+	return *(*byte)(unsafe.Pointer(&v)) == 0x01
+}()
+
 // htons converts host byte order to network byte order (16-bit)
 func htons(v uint16) uint16 {
+	if hostIsBigEndian {
+		return v
+	}
 	return (v << 8) | (v >> 8)
 }
