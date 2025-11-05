@@ -1,6 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ip_forward_prev=""
+ip_forward_changed=0
+
+cleanup() {
+  if [[ ${ip_forward_changed} -eq 1 ]]; then
+    if [[ -n "${ip_forward_prev}" ]]; then
+      echo "[entrypoint] Restoring net.ipv4.ip_forward=${ip_forward_prev}" >&2
+      if command -v sysctl >/dev/null 2>&1; then
+        sysctl -w net.ipv4.ip_forward="${ip_forward_prev}" >/dev/null 2>&1 || \
+          echo "[entrypoint] Warning: failed to restore net.ipv4.ip_forward via sysctl" >&2
+      elif [[ -w /proc/sys/net/ipv4/ip_forward ]]; then
+        echo "${ip_forward_prev}" >/proc/sys/net/ipv4/ip_forward 2>/dev/null || \
+          echo "[entrypoint] Warning: failed to restore net.ipv4.ip_forward via /proc" >&2
+      fi
+    fi
+  fi
+}
+
+trap cleanup EXIT
+
 # Defaults
 : "${IFACE:=tun0}"
 : "${TUN_UNDERLAY_IF:=eth0}"
@@ -30,7 +50,36 @@ if [[ "${TUN_START}" == "true" ]]; then
   fi
 
   echo "[entrypoint] Enabling IP forwarding..."
-  sysctl -w net.ipv4.ip_forward=1 >/dev/null || true
+  if command -v sysctl >/dev/null 2>&1; then
+    if prev_val=$(sysctl -n net.ipv4.ip_forward 2>/dev/null); then
+      if [[ "${prev_val}" != "1" ]]; then
+        if sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1; then
+          ip_forward_prev="${prev_val}"
+          ip_forward_changed=1
+        else
+          echo "[entrypoint] Warning: failed to enable net.ipv4.ip_forward via sysctl" >&2
+        fi
+      else
+        echo "[entrypoint] IP forwarding already enabled." >&2
+      fi
+    else
+      echo "[entrypoint] Warning: unable to read current net.ipv4.ip_forward" >&2
+    fi
+  elif [[ -r /proc/sys/net/ipv4/ip_forward ]]; then
+    prev_val=$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo "")
+    if [[ "${prev_val}" != "1" && -w /proc/sys/net/ipv4/ip_forward ]]; then
+      if echo 1 >/proc/sys/net/ipv4/ip_forward 2>/dev/null; then
+        ip_forward_prev="${prev_val}"
+        ip_forward_changed=1
+      else
+        echo "[entrypoint] Warning: failed to enable net.ipv4/ip_forward via /proc" >&2
+      fi
+    else
+      echo "[entrypoint] IP forwarding already enabled or /proc/sys/net/ipv4/ip_forward unwritable." >&2
+    fi
+  else
+    echo "[entrypoint] Warning: cannot manage net.ipv4.ip_forward (sysctl unavailable)." >&2
+  fi
 
   echo "[entrypoint] Starting traffic_tunnel on ${TUN_UNDERLAY_IF} (server mode)..."
   /usr/local/bin/traffic_tunnel "${TUN_UNDERLAY_IF}" -s &
@@ -81,4 +130,6 @@ fi
 
 echo "[entrypoint] Starting wiredolphin on ${IFACE}..."
 cd /logs
-exec /app/wiredolphin "${IFACE}"
+/app/wiredolphin "${IFACE}"
+status=$?
+exit ${status}

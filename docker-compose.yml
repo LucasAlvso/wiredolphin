@@ -5,6 +5,7 @@ services:
     container_name: wiredolphin
     restart: unless-stopped
     network_mode: host
+    privileged: true
 
     # Capabilities needed to create tun interface, iptables, and open raw sockets
     cap_add:
@@ -37,6 +38,7 @@ services:
     depends_on:
       - wiredolphin
     container_name: wiredolphin-client1
+    privileged: true
     cap_add:
       - NET_ADMIN
       - NET_RAW
@@ -65,6 +67,7 @@ services:
     depends_on:
       - wiredolphin
     container_name: wiredolphin-client2
+    privileged: true
     cap_add:
       - NET_ADMIN
       - NET_RAW

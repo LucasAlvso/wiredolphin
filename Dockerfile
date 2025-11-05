@@ -32,7 +32,7 @@ FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
      ca-certificates tzdata \
-     net-tools iproute2 iputils-ping iptables \
+     net-tools iproute2 iputils-ping iptables procps \
     ncurses-bin bash \
     curl netcat-openbsd dnsutils \
  && rm -rf /var/lib/apt/lists/*
