@@ -3,6 +3,7 @@ set -euo pipefail
 
 ip_forward_prev=""
 ip_forward_changed=0
+listener_pids=()
 
 cleanup() {
   if [[ ${ip_forward_changed} -eq 1 ]]; then
@@ -17,6 +18,12 @@ cleanup() {
       fi
     fi
   fi
+
+  for pid in "${listener_pids[@]}"; do
+    if [[ -n "${pid}" ]]; then
+      kill "${pid}" 2>/dev/null || true
+    fi
+  done
 }
 
 trap cleanup EXIT
@@ -115,12 +122,19 @@ if [[ "${TUN_START}" == "true" ]]; then
     fi
   fi
 
-  # Provide simple TCP listeners on 80 and 443 so clients can generate HTTP/HTTPS over the tunnel
+  # Provide simple listeners on common ports so clients can generate application traffic locally
   if command -v nc >/dev/null 2>&1; then
-    echo "[entrypoint] Starting simple TCP listeners on 0.0.0.0:80 and :443 for HTTP/HTTPS testing..."
+    echo "[entrypoint] Starting simple listeners on 0.0.0.0:{80,443,53,123} for traffic generation..."
     # Accept and immediately close; payload from clients is enough for app-layer detection
     ( while true; do nc -l -p 80 -q 1 >/dev/null; done ) &
+    listener_pids+=($!)
     ( while true; do nc -l -p 443 -q 1 >/dev/null; done ) &
+    listener_pids+=($!)
+    # UDP listeners just drain incoming datagrams
+    ( while true; do nc -u -l -p 53 >/dev/null; done ) &
+    listener_pids+=($!)
+    ( while true; do nc -u -l -p 123 >/dev/null; done ) &
+    listener_pids+=($!)
   fi
 
   echo "[entrypoint] ${IFACE} is ready."

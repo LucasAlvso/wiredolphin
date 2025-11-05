@@ -11,6 +11,43 @@ set -euo pipefail
 : "${GEN_DHCP:=false}"
 : "${DHCP_TARGET:=172.31.66.1}"
 
+send_ntp_payload() {
+  printf '\x1b'
+  # 47 zero bytes to complete minimal SNTP client request
+  printf '\0%.0s' {1..47}
+}
+
+send_ntp_probe() {
+  local target="$1"
+  local label="$2"
+  if [[ -z "${target}" ]]; then
+    return
+  fi
+  local suffix=""
+  if [[ -n "${label}" ]]; then
+    suffix=" (${label})"
+  fi
+  echo "[gen] NTP client packet to ${target}:123${suffix}"
+  local dest_ip=""
+  if [[ "${target}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    dest_ip="${target}"
+  else
+    local resolved=""
+    if resolved=$(getent ahostsv4 "${target}" 2>/dev/null | awk 'NR==1 {print $1}'); then
+      dest_ip="${resolved}"
+    else
+      echo "[gen] Note: unable to resolve ${target}, skipping UDP send" >&2
+    fi
+  fi
+
+  if [[ -n "${dest_ip}" ]]; then
+    if command -v nc >/dev/null 2>&1; then
+      send_ntp_payload | nc -u -w1 "${dest_ip}" 123 >/dev/null 2>&1 || true
+    fi
+    send_ntp_payload >"/dev/udp/${dest_ip}/123" 2>/dev/null || true
+  fi
+}
+
 echo "[gen] Starting traffic generation..."
 
 if [[ -n "${PING_TARGET}" ]]; then
@@ -56,13 +93,14 @@ if [[ -n "${DNS_NAME}" ]]; then
   fi
 fi
 
+fallback_ntp="${DHCP_TARGET:-}"
+
 if [[ -n "${NTP_SERVER}" ]]; then
-  echo "[gen] NTP client packet to ${NTP_SERVER}:123"
-  # Minimal SNTP client request: first byte 0x1B (LI=0, VN=3, Mode=3), rest zero (48 bytes total)
-  {
-    printf '\x1b'
-    dd if=/dev/zero bs=1 count=47 status=none
-  } | nc -u -w1 "${NTP_SERVER}" 123 >/dev/null 2>&1 || true
+  send_ntp_probe "${NTP_SERVER}" "primary"
+fi
+
+if [[ -n "${fallback_ntp}" && "${fallback_ntp}" != "${NTP_SERVER}" ]]; then
+  send_ntp_probe "${fallback_ntp}" "fallback"
 fi
 
 if [[ "${GEN_DHCP}" == "true" ]]; then
