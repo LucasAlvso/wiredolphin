@@ -270,19 +270,33 @@ void run_tunnel(int server, int argc, char *argv[])
 
 	/* Get interface name */
 	if (argc >= 3) {
-		strcpy(ifName, argv[1]);
+		size_t if_len = strlen(argv[1]);
+		if (if_len >= sizeof(ifName)) {
+			fprintf(stderr, "Interface name '%s' is too long\n", argv[1]);
+			close(tun_fd);
+			exit(EXIT_FAILURE);
+		}
+		snprintf(ifName, sizeof(ifName), "%s", argv[1]);
 	} else {
 		perror("Error configuring interface\n");
 		exit(1);
 	}
 
 	/* Open RAW socket */
-	if ((sock_fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) == -1)
-		perror("socket");
+	sock_fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+	if (sock_fd == -1) {
+		perror("socket(AF_PACKET)");
+		close(tun_fd);
+		exit(EXIT_FAILURE);
+	}
 
 	ioctl_fd = socket(AF_INET, SOCK_DGRAM, 0);
-	if (ioctl_fd == -1)
+	if (ioctl_fd == -1) {
 		perror("socket(AF_INET)");
+		close(sock_fd);
+		close(tun_fd);
+		exit(EXIT_FAILURE);
+	}
 
 	/* Set interface to promiscuous mode */
 	snprintf(ifopts.ifr_name, sizeof(ifopts.ifr_name), "%s", ifName);
