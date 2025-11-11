@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +20,8 @@ type CSVLogger struct {
 	transportWriter   *csv.Writer
 	applicationWriter *csv.Writer
 	mu                sync.Mutex
+	otherFirstTS      string
+	otherEmptyCount   int
 }
 
 // NewCSVLogger creates a new CSV logger
@@ -125,12 +128,38 @@ func (l *CSVLogger) LogPacket(pkt *stats.PacketInfo) {
 
 	// Log to application layer CSV (including 'Other' to comply with requirement)
 	if pkt.AppProto != "" {
-		l.writeRecord(l.applicationWriter, "camada_aplicacao.csv", []string{
-			timestamp,
-			pkt.AppProto,
-			pkt.AppInfo,
-		})
+		if pkt.AppProto == "Other" && strings.TrimSpace(pkt.AppInfo) == "" {
+			l.aggregateOther(timestamp)
+		} else {
+			l.flushPendingOther()
+			l.writeRecord(l.applicationWriter, "camada_aplicacao.csv", []string{
+				timestamp,
+				pkt.AppProto,
+				pkt.AppInfo,
+			})
+		}
 	}
+}
+
+func (l *CSVLogger) aggregateOther(timestamp string) {
+	if l.otherEmptyCount == 0 {
+		l.otherFirstTS = timestamp
+	}
+	l.otherEmptyCount++
+}
+
+func (l *CSVLogger) flushPendingOther() {
+	if l.otherEmptyCount == 0 {
+		return
+	}
+	info := fmt.Sprintf("(amount=%d)", l.otherEmptyCount)
+	l.writeRecord(l.applicationWriter, "camada_aplicacao.csv", []string{
+		l.otherFirstTS,
+		"Other",
+		info,
+	})
+	l.otherFirstTS = ""
+	l.otherEmptyCount = 0
 }
 
 // Flush flushes all CSV writers
@@ -138,6 +167,7 @@ func (l *CSVLogger) Flush() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	l.flushPendingOther()
 	flushWriter(l.internetWriter, "camada_internet.csv")
 	flushWriter(l.transportWriter, "camada_transporte.csv")
 	flushWriter(l.applicationWriter, "camada_aplicacao.csv")
@@ -148,6 +178,7 @@ func (l *CSVLogger) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	l.flushPendingOther()
 	flushWriter(l.internetWriter, "camada_internet.csv")
 	flushWriter(l.transportWriter, "camada_transporte.csv")
 	flushWriter(l.applicationWriter, "camada_aplicacao.csv")
