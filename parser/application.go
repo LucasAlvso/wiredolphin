@@ -24,10 +24,7 @@ const DHCPMagicCookie = 0x63825363
 func DetectApplicationProtocol(srcPort, dstPort uint16, payload []byte) (string, string) {
 	// Port-based detection first
 	if srcPort == PortHTTP || dstPort == PortHTTP {
-		if isHTTP(payload) {
-			return "HTTP", getHTTPInfo(payload)
-		}
-		return "HTTP", ""
+		return "HTTP", buildHTTPInfo(payload)
 	}
 
 	if srcPort == PortHTTPS || dstPort == PortHTTPS {
@@ -82,7 +79,7 @@ func isHTTP(payload []byte) bool {
 // getHTTPInfo extracts HTTP request/response info
 func getHTTPInfo(payload []byte) string {
 	if len(payload) < 10 {
-		return ""
+		return summarizeHTTPPayload(payload)
 	}
 
 	lines := bytes.SplitN(payload, []byte("\r\n"), 2)
@@ -92,6 +89,109 @@ func getHTTPInfo(payload []byte) string {
 			firstLine = firstLine[:100] + "..."
 		}
 		return firstLine
+	}
+	return ""
+}
+
+func buildHTTPInfo(payload []byte) string {
+	verb := detectHTTPVerb(payload)
+	info := ""
+	if isHTTP(payload) {
+		info = getHTTPInfo(payload)
+	}
+	if info == "" {
+		info = summarizeHTTPPayload(payload)
+	}
+	if verb == "" {
+		verb = "UNKNOWN"
+	}
+	if info == "" {
+		return fmt.Sprintf("verb=%s", verb)
+	}
+	upperInfo := strings.ToUpper(info)
+	if strings.HasPrefix(upperInfo, verb) || strings.HasPrefix(info, "verb=") {
+		return info
+	}
+	return fmt.Sprintf("verb=%s %s", verb, info)
+}
+
+func summarizeHTTPPayload(payload []byte) string {
+	if len(payload) == 0 {
+		return "(no payload)"
+	}
+
+	const snippetLen = 48
+	var asciiBuilder strings.Builder
+	for i := 0; i < len(payload) && asciiBuilder.Len() < snippetLen; i++ {
+		b := payload[i]
+		if b >= 32 && b <= 126 {
+			asciiBuilder.WriteByte(b)
+		} else if b == '\r' || b == '\n' || b == '\t' {
+			asciiBuilder.WriteByte(' ')
+		} else {
+			asciiBuilder.WriteByte('.')
+		}
+	}
+
+	snippet := strings.TrimSpace(asciiBuilder.String())
+	if snippet != "" {
+		if len(snippet) == snippetLen {
+			return snippet + "..."
+		}
+		return snippet
+	}
+
+	// Fallback: show first eight bytes in hex for binary content.
+	hexLen := 8
+	if len(payload) < hexLen {
+		hexLen = len(payload)
+	}
+	var hexBuilder strings.Builder
+	hexBuilder.WriteString("0x")
+	for i := 0; i < hexLen; i++ {
+		fmt.Fprintf(&hexBuilder, "%02x", payload[i])
+		if i != hexLen-1 {
+			hexBuilder.WriteByte(' ')
+		}
+	}
+	if len(payload) > hexLen {
+		hexBuilder.WriteString(" ...")
+	}
+	return hexBuilder.String()
+}
+
+func detectHTTPVerb(payload []byte) string {
+	if len(payload) == 0 {
+		return ""
+	}
+	trimmed := bytes.TrimLeft(payload, " \r\n\t")
+	if len(trimmed) == 0 {
+		return ""
+	}
+	if bytes.HasPrefix(trimmed, []byte("HTTP/")) {
+		return "RESPONSE"
+	}
+	spaceIdx := bytes.IndexByte(trimmed, ' ')
+	if spaceIdx <= 0 {
+		spaceIdx = len(trimmed)
+	}
+	if spaceIdx > 16 {
+		spaceIdx = 16
+	}
+	candidate := strings.ToUpper(string(trimmed[:spaceIdx]))
+	switch candidate {
+	case "GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT", "PATCH":
+		return candidate
+	}
+	if strings.HasPrefix(candidate, "HTTP/") {
+		return "RESPONSE"
+	}
+	// Allow verbs that look like tokens (letters only)
+	clean := strings.TrimFunc(candidate, func(r rune) bool {
+		return r < 'A' || r > 'Z'
+	})
+	if clean != "" {
+		return clean
 	}
 	return ""
 }
