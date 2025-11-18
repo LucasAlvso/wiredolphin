@@ -68,7 +68,7 @@ services:
       - PING_COUNT=3
       - HTTP_URL=http://172.31.66.1/
       - DNS_NAME=example.com
-      - DNS_SERVER=1.1.1.1
+      - DNS_SERVER=172.31.66.1
       - NTP_SERVER=pool.ntp.org
       - TUN_WAIT_TIMEOUT=20
     entrypoint: ["/entrypoint-client.sh"]
@@ -101,7 +101,7 @@ services:
       - PING_COUNT=3
       - HTTP_URL=http://172.31.66.1/
       - DNS_NAME=cloudflare.com
-      - DNS_SERVER=8.8.8.8
+      - DNS_SERVER=172.31.66.1
       - NTP_SERVER=time.google.com
       - TUN_WAIT_TIMEOUT=20
     entrypoint: ["/entrypoint-client.sh"]
