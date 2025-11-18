@@ -38,6 +38,9 @@ services:
       - TUN_ADDR_CIDR=172.31.66.1/24
       - TUN_ENABLE_NAT=true
       - TUN_GEN_TRAFFIC=true
+    networks:
+      wiredolphin_net:
+        ipv4_address: 172.31.66.1
 
   client1:
     image: wiredolphin:latest
@@ -69,6 +72,8 @@ services:
       - NTP_SERVER=pool.ntp.org
       - TUN_WAIT_TIMEOUT=20
     entrypoint: ["/entrypoint-client.sh"]
+    networks:
+      - wiredolphin_net
 
   client2:
     image: wiredolphin:latest
@@ -100,7 +105,14 @@ services:
       - NTP_SERVER=time.google.com
       - TUN_WAIT_TIMEOUT=20
     entrypoint: ["/entrypoint-client.sh"]
+    networks:
+      - wiredolphin_net
 
 networks:
   wiredolphin_net:
     driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.31.66.0/24
+          gateway: 172.31.66.254
