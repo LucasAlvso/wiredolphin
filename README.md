@@ -101,7 +101,7 @@ sudo ./wiredolphin eth0
 
 CSV log files are continuously written and flushed so you can inspect them live:
 
-- `camada_internet.csv` – IPv4/IPv6/ICMP details (timestamp, protocol, IPs, proto number, ICMP info, bytes)
+- `camada_internet.csv` – IPv4/IPv6/ICMP details (timestamp, protocol, IPs, proto number, info, bytes)
 - `camada_transporte.csv` – TCP/UDP details (timestamp, protocol, IPs/ports, bytes)
 - `camada_aplicacao.csv` – Application layer (HTTP/DHCP/DNS/NTP) summary
 

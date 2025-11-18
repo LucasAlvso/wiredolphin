@@ -21,8 +21,9 @@ type PacketInfo struct {
 	TransportProto string
 	AppProto       string
 	ProtocolNum    uint8
-	ICMPInfo       string
+	NetworkInfo    string
 	AppInfo        string
+	TCPFlags       string
 }
 
 // RemoteHost tracks statistics for a specific remote host

@@ -41,7 +41,7 @@ func NewCSVLogger() (*CSVLogger, error) {
 		"Source IP",
 		"Destination IP",
 		"Protocol Number",
-		"ICMP Info",
+		"Info",
 		"Total Bytes",
 	}); err != nil {
 		internetFile.Close()
@@ -59,6 +59,7 @@ func NewCSVLogger() (*CSVLogger, error) {
 	if err := writeHeader(logger.transportWriter, "camada_transporte.csv", []string{
 		"Timestamp",
 		"Protocol",
+		"Flags",
 		"Source IP",
 		"Source Port",
 		"Destination IP",
@@ -108,7 +109,7 @@ func (l *CSVLogger) LogPacket(pkt *stats.PacketInfo) {
 			pkt.SrcIP,
 			pkt.DstIP,
 			fmt.Sprintf("%d", pkt.ProtocolNum),
-			pkt.ICMPInfo,
+			pkt.NetworkInfo,
 			fmt.Sprintf("%d", pkt.Size),
 		})
 	}
@@ -118,6 +119,7 @@ func (l *CSVLogger) LogPacket(pkt *stats.PacketInfo) {
 		l.writeRecord(l.transportWriter, "camada_transporte.csv", []string{
 			timestamp,
 			pkt.TransportProto,
+			pkt.TCPFlags,
 			pkt.SrcIP,
 			fmt.Sprintf("%d", pkt.SrcPort),
 			pkt.DstIP,

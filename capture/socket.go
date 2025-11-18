@@ -199,11 +199,13 @@ func (c *Capturer) parseIPv4(data []byte, pkt *stats.PacketInfo) {
 		return
 	}
 
+	networkInfo := fmt.Sprintf("ttl=%d len=%d id=%d flags=0x%x frag=%d", ipHeader.TTL, ipHeader.TotalLength, ipHeader.Identification, ipHeader.Flags, ipHeader.FragOffset)
 	pkt.L3Family = "IPv4"
 	pkt.NetworkProto = "IPv4"
 	pkt.SrcIP = ipHeader.SrcIP.String()
 	pkt.DstIP = ipHeader.DstIP.String()
 	pkt.ProtocolNum = ipHeader.Protocol
+	pkt.NetworkInfo = networkInfo
 
 	// Parse transport layer
 	switch ipHeader.Protocol {
@@ -223,6 +225,7 @@ func (c *Capturer) parseIPv6(data []byte, pkt *stats.PacketInfo) {
 		return
 	}
 
+	baseNetworkInfo := fmt.Sprintf("hop=%d flow=0x%x nh0=%d", ipHeader.HopLimit, ipHeader.FlowLabel, ipHeader.NextHeader)
 	pkt.L3Family = "IPv6"
 	pkt.NetworkProto = "IPv6"
 	pkt.SrcIP = ipHeader.SrcIP.String()
@@ -255,6 +258,7 @@ func (c *Capturer) parseIPv6(data []byte, pkt *stats.PacketInfo) {
 	}
 
 	pkt.ProtocolNum = upperProto
+	pkt.NetworkInfo = fmt.Sprintf("%s nh=%d", baseNetworkInfo, upperProto)
 	if !hasUpper {
 		return
 	}
@@ -269,7 +273,7 @@ func (c *Capturer) parseIPv6(data []byte, pkt *stats.PacketInfo) {
 		pkt.NetworkProto = "ICMPv6"
 		pkt.TransportProto = "ICMPv6"
 		if icmpHeader, err := parser.ParseICMP(upperPayload); err == nil {
-			pkt.ICMPInfo = parser.GetICMPTypeString(icmpHeader.Type)
+			pkt.NetworkInfo = parser.GetICMPTypeString(icmpHeader.Type)
 		}
 	}
 }
@@ -284,6 +288,7 @@ func (c *Capturer) parseTCP(data []byte, pkt *stats.PacketInfo) {
 	pkt.TransportProto = "TCP"
 	pkt.SrcPort = tcpHeader.SrcPort
 	pkt.DstPort = tcpHeader.DstPort
+	pkt.TCPFlags = parser.GetTCPFlagsString(tcpHeader.Flags)
 
 	// Detect application protocol
 	appProto, appInfo := parser.DetectApplicationProtocol(tcpHeader.SrcPort, tcpHeader.DstPort, payload)
@@ -317,7 +322,7 @@ func (c *Capturer) parseICMP(data []byte, pkt *stats.PacketInfo) {
 
 	pkt.NetworkProto = "ICMP"
 	pkt.TransportProto = "ICMP"
-	pkt.ICMPInfo = parser.GetICMPTypeString(icmpHeader.Type)
+	pkt.NetworkInfo = parser.GetICMPTypeString(icmpHeader.Type)
 }
 
 // Close closes the socket
