@@ -44,6 +44,11 @@ COPY --from=tunnel-builder /build/tunnel/traffic_tunnel /usr/local/bin/traffic_t
 COPY scripts/entrypoint.sh /entrypoint.sh
 COPY scripts/entrypoint-client.sh /entrypoint-client.sh
 COPY scripts/generate-traffic.sh /generate-traffic.sh
+# Normalize line endings to LF for copied scripts (fix CRLF from Windows)
+RUN set -eux; \
+        for f in /entrypoint.sh /entrypoint-client.sh /generate-traffic.sh; do \
+            if [ -f "$f" ]; then sed -i 's/\r$//' "$f"; fi; \
+        done
 RUN chmod +x /entrypoint.sh
 RUN chmod +x /entrypoint-client.sh /generate-traffic.sh
 
