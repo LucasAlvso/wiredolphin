@@ -94,6 +94,10 @@ func getHTTPInfo(payload []byte) string {
 }
 
 func buildHTTPInfo(payload []byte) string {
+	if structured := structuredHTTPInfo(payload); structured != "" {
+		return structured
+	}
+
 	verb := detectHTTPVerb(payload)
 	info := ""
 	if isHTTP(payload) {
@@ -194,6 +198,131 @@ func detectHTTPVerb(payload []byte) string {
 		return clean
 	}
 	return ""
+}
+
+func structuredHTTPInfo(payload []byte) string {
+	if len(payload) == 0 {
+		return ""
+	}
+
+	const maxInspect = 4096
+	if len(payload) > maxInspect {
+		payload = payload[:maxInspect]
+	}
+
+	text := string(payload)
+	lines := splitHTTPLines(text)
+	if len(lines) == 0 {
+		return ""
+	}
+
+	first := strings.TrimSpace(lines[0])
+	if first == "" {
+		return ""
+	}
+
+	fields := strings.Fields(first)
+	if len(fields) == 0 {
+		return ""
+	}
+
+	method := strings.ToUpper(fields[0])
+	if isKnownHTTPMethod(method) && len(fields) >= 2 {
+		path := fields[1]
+		version := ""
+		if len(fields) >= 3 {
+			version = fields[2]
+		}
+		host := extractHTTPHost(lines[1:])
+
+		parts := []string{"verb=" + method}
+		if pathVal := formatHTTPValue("path", path); pathVal != "" {
+			parts = append(parts, pathVal)
+		}
+		if hostVal := formatHTTPValue("host", host); hostVal != "" {
+			parts = append(parts, hostVal)
+		}
+		if versionVal := formatHTTPValue("version", version); versionVal != "" {
+			parts = append(parts, versionVal)
+		}
+		return strings.Join(parts, " ")
+	}
+
+	if strings.HasPrefix(method, "HTTP/") && len(fields) >= 2 {
+		version := fields[0]
+		status := fields[1]
+		reason := ""
+		if len(fields) > 2 {
+			reason = strings.Join(fields[2:], " ")
+		}
+		host := extractHTTPHost(lines[1:])
+
+		parts := []string{"verb=RESPONSE"}
+		if statusVal := formatHTTPValue("status", status); statusVal != "" {
+			parts = append(parts, statusVal)
+		}
+		if reasonVal := formatHTTPValue("reason", reason); reasonVal != "" {
+			parts = append(parts, reasonVal)
+		}
+		if versionVal := formatHTTPValue("version", version); versionVal != "" {
+			parts = append(parts, versionVal)
+		}
+		if hostVal := formatHTTPValue("host", host); hostVal != "" {
+			parts = append(parts, hostVal)
+		}
+		return strings.Join(parts, " ")
+	}
+
+	return ""
+}
+
+func splitHTTPLines(text string) []string {
+	if strings.Contains(text, "\r\n") {
+		return strings.Split(text, "\r\n")
+	}
+	return strings.Split(text, "\n")
+}
+
+func extractHTTPHost(lines []string) string {
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			break
+		}
+		if len(trimmed) >= 5 && strings.EqualFold(trimmed[:5], "Host:") {
+			return strings.TrimSpace(trimmed[5:])
+		}
+	}
+	return ""
+}
+
+func formatHTTPValue(label, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value = limitString(value, 120)
+	if strings.ContainsAny(value, " \"") {
+		sanitized := strings.ReplaceAll(value, "\"", "'")
+		return fmt.Sprintf("%s=\"%s\"", label, sanitized)
+	}
+	return fmt.Sprintf("%s=%s", label, value)
+}
+
+func limitString(s string, max int) string {
+	if max <= 3 || len(s) <= max {
+		return s
+	}
+	return s[:max-3] + "..."
+}
+
+func isKnownHTTPMethod(method string) bool {
+	switch method {
+	case "GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT", "PATCH":
+		return true
+	default:
+		return false
+	}
 }
 
 // isDNS checks if payload looks like DNS
