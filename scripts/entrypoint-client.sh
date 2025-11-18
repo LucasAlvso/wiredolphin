@@ -14,7 +14,7 @@ set -euo pipefail
 : "${DNS_NAME:=}"
 : "${DNS_SERVER:=}"
 : "${NTP_SERVER:=}"
-: "${DHCP_TARGET:=172.31.66.1}"
+: "${DHCP_TARGET:=10.66.66.1}"
 
 echo "[client] Starting traffic_tunnel client with IFACE=${IFACE}, CLIENT_UNDERLAY_IF=${CLIENT_UNDERLAY_IF}, CLIENT_SCRIPT=${CLIENT_SCRIPT}"
 

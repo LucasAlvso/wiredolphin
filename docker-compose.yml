@@ -35,12 +35,12 @@ services:
       - TUN_UNDERLAY_IF=eth0
       - TUN_START=true
       - TUN_WAIT_TIMEOUT=20
-      - TUN_ADDR_CIDR=172.31.66.1/24
+      - TUN_ADDR_CIDR=10.66.66.1/24
       - TUN_ENABLE_NAT=true
       - TUN_GEN_TRAFFIC=true
     networks:
       wiredolphin_net:
-        ipv4_address: 172.31.66.1
+        ipv4_address: 172.31.200.10
 
   client1:
     image: wiredolphin:latest
@@ -66,9 +66,9 @@ services:
       - GEN_DHCP=true
       - PING_TARGET=1.1.1.1
       - PING_COUNT=3
-      - HTTP_URL=http://172.31.66.1/
+      - HTTP_URL=http://10.66.66.1/
       - DNS_NAME=example.com
-      - DNS_SERVER=172.31.66.1
+      - DNS_SERVER=10.66.66.1
       - NTP_SERVER=pool.ntp.org
       - TUN_WAIT_TIMEOUT=20
     entrypoint: ["/entrypoint-client.sh"]
@@ -99,9 +99,9 @@ services:
       - GEN_DHCP=true
       - PING_TARGET=8.8.8.8
       - PING_COUNT=3
-      - HTTP_URL=http://172.31.66.1/
+      - HTTP_URL=http://10.66.66.1/
       - DNS_NAME=cloudflare.com
-      - DNS_SERVER=172.31.66.1
+      - DNS_SERVER=10.66.66.1
       - NTP_SERVER=time.google.com
       - TUN_WAIT_TIMEOUT=20
     entrypoint: ["/entrypoint-client.sh"]
@@ -114,5 +114,5 @@ networks:
     ipam:
       driver: default
       config:
-        - subnet: 172.31.66.0/24
-          gateway: 172.31.66.254
+        - subnet: 172.31.200.0/24
+          gateway: 172.31.200.1

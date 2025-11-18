@@ -9,7 +9,7 @@ set -euo pipefail
 : "${DNS_SERVER:=}"
 : "${NTP_SERVER:=}"
 : "${GEN_DHCP:=false}"
-: "${DHCP_TARGET:=172.31.66.1}"
+: "${DHCP_TARGET:=10.66.66.1}"
 
 send_ntp_payload() {
   printf '\x1b'

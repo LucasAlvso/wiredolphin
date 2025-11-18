@@ -34,7 +34,7 @@ trap cleanup EXIT
 : "${TUN_START:=true}"
 : "${TUN_WAIT_TIMEOUT:=20}"
 # Optional: configure IP and NAT on the TUN interface (useful if tunnel binary doesn't do it)
-: "${TUN_ADDR_CIDR:=172.31.66.1/24}"
+: "${TUN_ADDR_CIDR:=10.66.66.1/24}"
 : "${TUN_ENABLE_NAT:=true}"
 
 echo "[entrypoint] Starting with IFACE=${IFACE}, TUN_UNDERLAY_IF=${TUN_UNDERLAY_IF}, TUN_START=${TUN_START}"

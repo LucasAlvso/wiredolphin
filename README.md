@@ -50,7 +50,7 @@ $env:TUN_UNDERLAY_IF = "eth0"; docker compose up -d --build
 $env:TUN_START = "false"; docker compose up -d --build
 
 # Optionally set the TUN address (applied if the tunnel binary didn't assign one):
-$env:TUN_ADDR_CIDR = "172.31.66.1/24"; docker compose up -d --build
+$env:TUN_ADDR_CIDR = "10.66.66.1/24"; docker compose up -d --build
 
 # Control NAT (MASQUERADE) on the underlay interface:
 $env:TUN_ENABLE_NAT = "true"; docker compose up -d --build

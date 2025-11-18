@@ -52,7 +52,7 @@ ENV IFACE=tun0 \
     TUN_UNDERLAY_IF=eth0 \
     TUN_START=true \
     TUN_WAIT_TIMEOUT=20 \
-    TUN_ADDR_CIDR=172.31.66.1/24 \
+    TUN_ADDR_CIDR=10.66.66.1/24 \
     TUN_ENABLE_NAT=true
 
 # The app writes CSV logs to the CWD; docker-compose mounts a volume here
