@@ -83,6 +83,8 @@ func NewCSVLogger() (*CSVLogger, error) {
 	if err := writeHeader(logger.applicationWriter, "camada_aplicacao.csv", []string{
 		"Timestamp",
 		"Protocol",
+		"Source IP",
+		"Destination IP",
 		"Protocol Info",
 	}); err != nil {
 		internetFile.Close()
@@ -137,6 +139,8 @@ func (l *CSVLogger) LogPacket(pkt *stats.PacketInfo) {
 			l.writeRecord(l.applicationWriter, "camada_aplicacao.csv", []string{
 				timestamp,
 				pkt.AppProto,
+				pkt.SrcIP,
+				pkt.DstIP,
 				pkt.AppInfo,
 			})
 		}
@@ -158,6 +162,8 @@ func (l *CSVLogger) flushPendingOther() {
 	l.writeRecord(l.applicationWriter, "camada_aplicacao.csv", []string{
 		l.otherFirstTS,
 		"Other",
+		"",
+		"",
 		info,
 	})
 	l.otherFirstTS = ""
