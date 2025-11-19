@@ -136,22 +136,6 @@ func GetICMPTypeString(icmpType uint8) string {
 	return fmt.Sprintf("Type %d", icmpType)
 }
 
-// GetProtocolName returns the protocol name for a protocol number
-func GetProtocolName(proto uint8) string {
-	switch proto {
-	case ProtoICMP:
-		return "ICMP"
-	case ProtoTCP:
-		return "TCP"
-	case ProtoUDP:
-		return "UDP"
-	case ProtoICMPv6:
-		return "ICMPv6"
-	default:
-		return fmt.Sprintf("Proto%d", proto)
-	}
-}
-
 // StripIPv6Extensions walks IPv6 extension headers and returns the upper-layer protocol and payload.
 // The boolean indicates whether the upper-layer payload is present (fragments without the first
 // fragment return false but no error). Unsupported extensions such as ESP also return false.

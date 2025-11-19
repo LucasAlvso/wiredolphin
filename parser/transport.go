@@ -26,6 +26,16 @@ type UDPHeader struct {
 	Checksum uint16
 }
 
+// TransportSummary captures the key fields we care about from TCP/UDP payloads plus application info.
+type TransportSummary struct {
+	Proto    string
+	SrcPort  uint16
+	DstPort  uint16
+	Flags    string
+	AppProto string
+	AppInfo  string
+}
+
 // TCP Flags
 const (
 	FlagFIN = 0x01
@@ -78,6 +88,39 @@ func ParseUDP(data []byte) (*UDPHeader, []byte, error) {
 
 	payload := data[8:]
 	return header, payload, nil
+}
+
+// SummarizeTCP parses TCP and extracts transport/application metadata for higher layers.
+func SummarizeTCP(data []byte) (*TransportSummary, error) {
+	head, payload, err := ParseTCP(data)
+	if err != nil {
+		return nil, err
+	}
+	appProto, appInfo := DetectApplicationProtocol(head.SrcPort, head.DstPort, payload)
+	return &TransportSummary{
+		Proto:    "TCP",
+		SrcPort:  head.SrcPort,
+		DstPort:  head.DstPort,
+		Flags:    GetTCPFlagsString(head.Flags),
+		AppProto: appProto,
+		AppInfo:  appInfo,
+	}, nil
+}
+
+// SummarizeUDP parses UDP and extracts transport/application metadata for higher layers.
+func SummarizeUDP(data []byte) (*TransportSummary, error) {
+	head, payload, err := ParseUDP(data)
+	if err != nil {
+		return nil, err
+	}
+	appProto, appInfo := DetectApplicationProtocol(head.SrcPort, head.DstPort, payload)
+	return &TransportSummary{
+		Proto:    "UDP",
+		SrcPort:  head.SrcPort,
+		DstPort:  head.DstPort,
+		AppProto: appProto,
+		AppInfo:  appInfo,
+	}, nil
 }
 
 // GetTCPFlagsString returns a string representation of TCP flags
